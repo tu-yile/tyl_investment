@@ -1,0 +1,31 @@
+{
+  "name": "tyl_investment",
+  "version": "1.0.0",
+  "description": "涂一乐的投研团队",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "set CODEX_HOME=D:\\codex_home&& npm run build && node dist/index.js",
+    "dev": "set CODEX_HOME=D:\\codex_home&& node dist/index.js",
+    "lint": "node -e \"console.log('No lint configured')\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tu-yile/tyl_investment.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/tu-yile/tyl_investment/issues"
+  },
+  "homepage": "https://github.com/tu-yile/tyl_investment#readme",
+  "dependencies": {
+    "@openai/codex-sdk": "^0.117.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^6.0.2"
+  }
+}

@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.gateway/
+.lark-events/
+npm-debug.log*
