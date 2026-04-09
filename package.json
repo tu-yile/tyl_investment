@@ -6,9 +6,13 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "set CODEX_HOME=D:\\codex_home&& npm run build && node dist/index.js",
-    "dev": "set CODEX_HOME=D:\\codex_home&& node dist/index.js",
-    "lint": "node -e \"console.log('No lint configured')\""
+    "start": "npm run build && node dist/index.js",
+    "dev": "npm run build && node dist/index.js",
+    "lint": "node -e \"console.log('No lint configured')\"",
+    "investment": "npm run build && node dist/investment/index.js",
+    "investment:daily": "npm run build && node dist/investment/index.js daily-run",
+    "investment:validate": "npm run build && node dist/investment/index.js validate-md",
+    "investment:rebuild-state": "npm run build && node dist/investment/index.js rebuild-state"
   },
   "repository": {
     "type": "git",
@@ -22,7 +26,8 @@
   },
   "homepage": "https://github.com/tu-yile/tyl_investment#readme",
   "dependencies": {
-    "@openai/codex-sdk": "^0.117.0"
+    "@larksuite/cli": "^1.0.4",
+    "@openai/codex-sdk": "^0.118.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

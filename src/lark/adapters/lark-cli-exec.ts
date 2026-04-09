@@ -28,6 +28,10 @@ export function createSpawnSpec(args: string[], forceCmd = false): SpawnSpec {
     }
     return { command: "cmd.exe", args: ["/c", "lark-cli", ...args] };
   }
+  const localCli = path.resolve(process.cwd(), "node_modules", ".bin", "lark-cli");
+  if (fs.existsSync(localCli)) {
+    return { command: localCli, args };
+  }
   return { command: "lark-cli", args };
 }
 

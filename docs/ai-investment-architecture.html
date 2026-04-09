@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>A 股主动多头多 Agent 投研系统架构图</title>
+    <link rel="stylesheet" href="./ai-investment-architecture.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">AI BUY-SIDE OPERATING SYSTEM</p>
+          <h1>A 股主动多头中线多 Agent 投研系统</h1>
+          <p class="lead">
+            这不是一个泛化的研究助手，而是一套围绕真实买方流程搭建的工作系统：
+            以固定 workflow 为骨架，以专职 agent 为节点，以行业知识库和 thesis
+            记忆为长期资产，以人工审批为最后闸门。
+          </p>
+          <div class="hero-pillars">
+            <span>固定流程骨架</span>
+            <span>按买方岗位拆 agent</span>
+            <span>长期记忆可累积</span>
+            <span>人保留最终决策权</span>
+          </div>
+        </div>
+        <div class="hero-meta">
+          <article class="meta-card">
+            <span class="meta-label">市场</span>
+            <strong>A 股</strong>
+          </article>
+          <article class="meta-card">
+            <span class="meta-label">策略</span>
+            <strong>主动多头</strong>
+          </article>
+          <article class="meta-card">
+            <span class="meta-label">持有周期</span>
+            <strong>中线持股</strong>
+          </article>
+          <article class="meta-card">
+            <span class="meta-label">当前边界</span>
+            <strong>生成操作建议，不自动下单</strong>
+          </article>
+        </div>
+      </header>
+
+      <main class="canvas">
+        <section class="north-star card">
+          <div class="section-heading">
+            <p class="kicker">整体理解</p>
+            <h2>系统的核心目标</h2>
+          </div>
+          <div class="north-grid">
+            <div class="north-card">
+              <h3>今天该不该动仓</h3>
+              <p>每天盘前围绕市场环境、持仓状态、候选替代和风险约束形成统一动作框架。</p>
+            </div>
+            <div class="north-card">
+              <h3>动哪个仓、怎么调</h3>
+              <p>不是只判断单票对错，而是从组合角度回答钱从哪里出来，去哪里更划算。</p>
+            </div>
+            <div class="north-card">
+              <h3>哪些仓位继续拿</h3>
+              <p>把 thesis 状态、催化剂、估值与风险结合起来，避免无效交易和叙事漂移。</p>
+            </div>
+            <div class="north-card">
+              <h3>哪些风险要优先处理</h3>
+              <p>让 Bear Case 与 Risk Officer 成为常驻刹车系统，而不是事后复盘角色。</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="stack">
+          <div class="section-heading">
+            <p class="kicker">六层架构</p>
+            <h2>从决策目标到底层治理的完整分层</h2>
+          </div>
+
+          <article class="layer layer-decision">
+            <div class="layer-title">
+              <span class="layer-index">L1</span>
+              <div>
+                <h3>投资决策层</h3>
+                <p>定义系统每天到底要回答什么问题。</p>
+              </div>
+            </div>
+            <div class="layer-content question-cloud">
+              <span>今天该不该动仓</span>
+              <span>动哪个仓</span>
+              <span>仓位怎么调</span>
+              <span>哪些持仓继续拿</span>
+              <span>哪些候选值得进入组合</span>
+              <span>哪些风险需要优先处理</span>
+            </div>
+          </article>
+
+          <article class="layer layer-workflow">
+            <div class="layer-title">
+              <span class="layer-index">L2</span>
+              <div>
+                <h3>工作流层</h3>
+                <p>系统主骨架，节点顺序固定，agent 在节点内履职。</p>
+              </div>
+            </div>
+            <div class="layer-content workflow-priority">
+              <div class="priority-column priority-p0">
+                <div class="priority-head">
+                  <span>P0</span>
+                  <strong>第一阶段必须上线</strong>
+                </div>
+                <ul>
+                  <li>每日持仓决策流：07:45 主触发，08:55 条件重跑，输出《今日持仓操作单》</li>
+                  <li>盘后状态更新流：15:30 更新持仓状态、执行结果、thesis 状态</li>
+                  <li>持仓事件应急流：重大公告、暴雷、政策突变、异常波动时快速重评</li>
+                </ul>
+              </div>
+              <div class="priority-column priority-p1">
+                <div class="priority-head">
+                  <span>P1</span>
+                  <strong>第二阶段建议上线</strong>
+                </div>
+                <ul>
+                  <li>新机会发现流：定时补充候选池</li>
+                  <li>深度研究立项流：把“值得看”推进到“是否可入池”</li>
+                  <li>周度组合审查流：检查组合排序、风格漂移、核心仓变化</li>
+                </ul>
+              </div>
+              <div class="priority-column priority-p2">
+                <div class="priority-head">
+                  <span>P2</span>
+                  <strong>第三阶段再做</strong>
+                </div>
+                <ul>
+                  <li>月度风控与归因流：收益归因、风险归因、失败复盘、风险预算调整</li>
+                </ul>
+              </div>
+            </div>
+          </article>
+
+          <article class="layer layer-agents">
+            <div class="layer-title">
+              <span class="layer-index">L3</span>
+              <div>
+                <h3>Agent 团队层</h3>
+                <p>按买方职责拆角色，而不是按技术能力拆角色。</p>
+              </div>
+            </div>
+            <div class="layer-content agent-grid">
+              <div class="agent-card agent-core">
+                <h4>CIO / Supervisor</h4>
+                <p>接收任务、调度团队、统一冲突观点、输出唯一正式结论。</p>
+              </div>
+              <div class="agent-card">
+                <h4>Macro &amp; Policy</h4>
+                <p>跟踪宏观、政策、流动性，给出进攻 / 中性 / 防守市场态度。</p>
+              </div>
+              <div class="agent-card">
+                <h4>Sector Analyst</h4>
+                <p>先读行业知识库，再做增量分析，判断景气、政策、竞争与估值环境是否变化。</p>
+              </div>
+              <div class="agent-card">
+                <h4>Company Analyst</h4>
+                <p>围绕单个持仓或候选股判断 thesis 是否强化或弱化，给出操作倾向。</p>
+              </div>
+              <div class="agent-card">
+                <h4>Bear Case</h4>
+                <p>专门挑战多头逻辑，找忽略风险，定义何时认错。</p>
+              </div>
+              <div class="agent-card">
+                <h4>Risk Officer</h4>
+                <p>检查单票、行业、风格、流动性与事件风险，担任组合风险闸门。</p>
+              </div>
+              <div class="agent-card">
+                <h4>Portfolio Manager</h4>
+                <p>做候选与持仓之间的替代排序，解决“资金从哪儿出，去哪里”。</p>
+              </div>
+              <div class="agent-card">
+                <h4>Monitoring &amp; Memory</h4>
+                <p>加载状态、写回状态、维护 thesis、观察项与历史结论。</p>
+              </div>
+              <div class="agent-card agent-recommended">
+                <h4>Industry Knowledge Curator</h4>
+                <p>维护行业知识库，对新信息去重、归类、版本化，决定哪些进入核心知识层。</p>
+              </div>
+            </div>
+          </article>
+
+          <article class="layer layer-memory">
+            <div class="layer-title">
+              <span class="layer-index">L4</span>
+              <div>
+                <h3>知识与记忆层</h3>
+                <p>把行业判断和公司 thesis 变成可复用、可更新、可验证的长期资产。</p>
+              </div>
+            </div>
+            <div class="layer-content knowledge-layout">
+              <div class="knowledge-card knowledge-industry">
+                <div class="knowledge-header">
+                  <h4>行业知识库层</h4>
+                  <span>共享长期记忆</span>
+                </div>
+                <div class="knowledge-stack">
+                  <div>
+                    <strong>1. 行业静态底盘</strong>
+                    <p>行业定义、产业链地图、商业模式、竞争因子、估值框架、监管框架、术语。</p>
+                  </div>
+                  <div>
+                    <strong>2. 核心跟踪框架</strong>
+                    <p>关键指标、领先与滞后指标、真信号与噪音的判别规则。</p>
+                  </div>
+                  <div>
+                    <strong>3. 行业时序事实层</strong>
+                    <p>政策时间线、景气拐点、龙头事件、供需变化、价格利润摘要、争议演化。</p>
+                  </div>
+                  <div>
+                    <strong>4. 可复用观点层</strong>
+                    <p>历史观点、争论点、被验证与被证伪判断、常见误判模式。</p>
+                  </div>
+                </div>
+              </div>
+              <div class="knowledge-column">
+                <div class="knowledge-card">
+                  <div class="knowledge-header">
+                    <h4>公司 Thesis 记忆层</h4>
+                    <span>逐票维护</span>
+                  </div>
+                  <ul class="memory-list">
+                    <li>核心投资逻辑</li>
+                    <li>关键驱动因素</li>
+                    <li>失效条件</li>
+                    <li>最近更新时间</li>
+                    <li>当前状态</li>
+                    <li>已验证 / 被证伪点</li>
+                  </ul>
+                </div>
+                <div class="knowledge-card">
+                  <div class="knowledge-header">
+                    <h4>组合记忆层</h4>
+                    <span>组合级状态</span>
+                  </div>
+                  <ul class="memory-list">
+                    <li>当前持仓与权重</li>
+                    <li>候选池</li>
+                    <li>历史调仓记录</li>
+                    <li>组合暴露</li>
+                    <li>观察事项</li>
+                  </ul>
+                </div>
+                <div class="knowledge-card">
+                  <div class="knowledge-header">
+                    <h4>行业分析嵌入方式</h4>
+                    <span>先读存量，再看增量</span>
+                  </div>
+                  <ul class="memory-list">
+                    <li>先读取：行业底盘、跟踪框架、当前行业状态卡、历史关键争议和判断</li>
+                    <li>再读取：最近 7 / 30 / 90 天变化、近期行业事件、持仓相关变化</li>
+                    <li>最后输出：今天发生了什么、是否改变原有判断、是否影响持仓和候选池</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="layer layer-state">
+            <div class="layer-title">
+              <span class="layer-index">L5</span>
+              <div>
+                <h3>状态管理层</h3>
+                <p>支撑所有工作流持续运行的核心状态表与中间对象。</p>
+              </div>
+            </div>
+            <div class="layer-content state-grid">
+              <div class="state-card">
+                <h4>Position</h4>
+                <p>ticker · name · weight · cost_basis · holding_days · sector · thesis_id</p>
+              </div>
+              <div class="state-card">
+                <h4>Thesis</h4>
+                <p>thesis_id · ticker · core_claim · key_drivers · invalidation_conditions · last_updated · status</p>
+              </div>
+              <div class="state-card">
+                <h4>Position Update Card</h4>
+                <p>ticker · thesis_status · today_view · suggested_weight_change · confidence · why_now · risk_flags</p>
+              </div>
+              <div class="state-card">
+                <h4>Action Item</h4>
+                <p>ticker · action · weight_change · priority · reason · cancel_condition</p>
+              </div>
+              <div class="state-card state-card-future">
+                <h4>下一步补充</h4>
+                <p>候选池状态 · 行业状态卡 · 风险状态表 · 观察事项表</p>
+              </div>
+            </div>
+          </article>
+
+          <article class="layer layer-governance">
+            <div class="layer-title">
+              <span class="layer-index">L6</span>
+              <div>
+                <h3>执行与治理层</h3>
+                <p>确保系统可以安全落地，且高影响动作不会绕过人工。</p>
+              </div>
+            </div>
+            <div class="layer-content governance-grid">
+              <div class="govern-card">
+                <h4>落地原则</h4>
+                <ul>
+                  <li>v1 不自动下单</li>
+                  <li>所有实际交易动作由人批准</li>
+                  <li>风险和高影响动作必须强制人工介入</li>
+                </ul>
+              </div>
+              <div class="govern-card">
+                <h4>人工介入点</h4>
+                <ul>
+                  <li>系统异常：数据缺失、状态损坏、持仓与账户不一致</li>
+                  <li>thesis 失效：核心逻辑被打穿、财务或治理风险爆发</li>
+                  <li>大幅操作：大幅加减仓、清仓、超常规新建仓</li>
+                  <li>低置信度高影响建议：建议动作大，但置信度偏低</li>
+                </ul>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="workflow card">
+          <div class="section-heading">
+            <p class="kicker">核心主流程</p>
+            <h2>每日持仓决策流</h2>
+            <p class="section-copy">
+              主触发为每个交易日 07:45，08:55 可条件重跑，最终输出《今日持仓操作单》。
+            </p>
+          </div>
+          <div class="workflow-track">
+            <article class="flow-node">
+              <span class="node-index">0</span>
+              <h3>交易日与系统检查</h3>
+              <p>判断是否交易日，以及系统是否处于可运行状态。</p>
+            </article>
+            <article class="flow-node">
+              <span class="node-index">1</span>
+              <h3>状态快照加载</h3>
+              <p>Monitoring &amp; Memory 加载持仓、候选池、风险预算、thesis 与未完成事项。</p>
+            </article>
+            <article class="flow-node">
+              <span class="node-index">2</span>
+              <h3>隔夜信息扫描</h3>
+              <p>Macro、Sector、Monitoring 扫描宏观、政策、公告、行业变化并回查知识库。</p>
+            </article>
+            <article class="flow-node">
+              <span class="node-index">3</span>
+              <h3>持仓逐票重评</h3>
+              <p>Company、Bear、Risk 联合重评 thesis 强弱、今日动作与风险变化，产出 position_update_card。</p>
+            </article>
+            <article class="flow-node">
+              <span class="node-index">4</span>
+              <h3>候选池替代评估</h3>
+              <p>Portfolio、Sector、Company、Risk 联合判断若调仓，资金最该从哪儿出来、去哪里。</p>
+            </article>
+            <article class="flow-node">
+              <span class="node-index">5</span>
+              <h3>组合级风险闸门</h3>
+              <p>Risk Officer 给出 pass / pass_with_limit / reject。</p>
+            </article>
+            <article class="flow-node">
+              <span class="node-index">6</span>
+              <h3>CIO 汇总与冲突消解</h3>
+              <p>统一口径、解决冲突、形成最终动作框架。</p>
+            </article>
+            <article class="flow-node">
+              <span class="node-index">7</span>
+              <h3>生成今日操作单</h3>
+              <p>输出必须动作、可选动作、继续持有、风险提示、今日不要做的事。</p>
+            </article>
+            <article class="flow-node">
+              <span class="node-index">8</span>
+              <h3>人工确认</h3>
+              <p>人对操作单执行批准、修改、打回或暂缓。</p>
+            </article>
+            <article class="flow-node">
+              <span class="node-index">9</span>
+              <h3>执行结果写回</h3>
+              <p>Monitoring &amp; Memory 写回批准结果、执行情况与后续观察项。</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="runtime-panel">
+          <div class="runtime-grid">
+            <article class="card runtime-card">
+              <div class="section-heading">
+                <p class="kicker">运行时展开</p>
+                <h2>两个持仓、两个行业时</h2>
+              </div>
+              <div class="runtime-split">
+                <div class="runtime-column">
+                  <h3>常驻能力层</h3>
+                  <ul class="runtime-list">
+                    <li>CIO / Supervisor</li>
+                    <li>Macro &amp; Policy</li>
+                    <li>Company Analyst</li>
+                    <li>Sector Analyst</li>
+                    <li>Bear Case</li>
+                    <li>Risk Officer</li>
+                    <li>Portfolio Manager</li>
+                    <li>Monitoring &amp; Memory</li>
+                    <li>Industry Knowledge Curator</li>
+                  </ul>
+                </div>
+                <div class="runtime-column">
+                  <h3>当天任务实例层</h3>
+                  <ul class="runtime-list">
+                    <li>Company Analyst for 股票 1</li>
+                    <li>Company Analyst for 股票 2</li>
+                    <li>Sector Analyst for 行业 1</li>
+                    <li>Sector Analyst for 行业 2</li>
+                    <li>行业知识库 A</li>
+                    <li>行业知识库 B</li>
+                  </ul>
+                </div>
+              </div>
+              <p class="runtime-note">
+                也就是说，系统层面是 8 个核心 agent 能力 + 1 个知识维护角色；当天运行时会根据持仓和行业映射动态展开多个任务实例。
+              </p>
+            </article>
+
+            <article class="card rules-card">
+              <div class="section-heading">
+                <p class="kicker">基础规则</p>
+                <h2>当前已确定的投资与动作约束</h2>
+              </div>
+              <div class="rule-group">
+                <h3>仓位规则</h3>
+                <ul>
+                  <li>单票初始仓位：1% - 3%</li>
+                  <li>单票常规上限：5%</li>
+                  <li>核心高确信仓上限：8%</li>
+                  <li>单行业上限：25%</li>
+                </ul>
+              </div>
+              <div class="rule-group">
+                <h3>动作规则</h3>
+                <ul>
+                  <li>thesis weakened + risk high → 优先减仓或退出</li>
+                  <li>thesis unchanged + no new catalyst → 默认持有</li>
+                  <li>thesis strengthened + valuation okay + risk pass → 可加仓</li>
+                  <li>candidate clearly better than existing → 允许调仓替换</li>
+                </ul>
+              </div>
+              <div class="rule-group">
+                <h3>置信度规则</h3>
+                <ul>
+                  <li>≥ 0.75：允许给明确动作</li>
+                  <li>0.55 - 0.75：允许给条件性动作</li>
+                  <li>&lt; 0.55：只能给观察建议或人工复核</li>
+                </ul>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="roadmap card">
+          <div class="section-heading">
+            <p class="kicker">下一步细化</p>
+            <h2>还没有完全展开、但优先级很高的模块</h2>
+          </div>
+          <div class="roadmap-grid">
+            <div class="roadmap-item">盘后状态更新流的完整节点图</div>
+            <div class="roadmap-item">持仓事件应急流的完整节点图</div>
+            <div class="roadmap-item">各 agent 的正式 contract：输入、输出、权限、禁止动作、交接关系</div>
+            <div class="roadmap-item">行业知识库的数据结构与更新规则</div>
+            <div class="roadmap-item">thesis 状态机：active / weakened / under_review / broken</div>
+            <div class="roadmap-item">风险闸门细则：集中度、风格暴露、流动性阈值</div>
+            <div class="roadmap-item">条件动作模板标准化：低开加仓、放量确认后建仓等</div>
+          </div>
+        </section>
+
+        <section class="summary-strip">
+          <p>
+            一句话总结：
+            这是一个以 workflow 为骨架、以专职 agent 为决策节点、以行业知识库和 thesis
+            记忆为长期资产、以人工审批为最后闸门的 A 股主动多头中线投资操作系统。
+          </p>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

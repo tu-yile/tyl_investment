@@ -27,7 +27,7 @@ export interface TimingData {
 export interface ProgressPayload {
   activity?: string;
   partialText?: string;
+  snapshot?: string;
   eventCount?: number;
   elapsedMs?: number;
 }
-

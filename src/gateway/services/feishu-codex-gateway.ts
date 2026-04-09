@@ -226,15 +226,19 @@ export class FeishuCodexGateway {
   }
 
   formatStreamingSnapshot({ progress }: { progress: ProgressPayload }): string {
-    const step = Number.isFinite(progress.eventCount) ? Number(progress.eventCount) : 0;
-    const elapsedSec = Number.isFinite(progress.elapsedMs) ? (Number(progress.elapsedMs) / 1000).toFixed(1) : "-";
-    if (progress?.partialText) {
-      return `处理中...（步骤 ${step}，${elapsedSec}s）\n\n${progress.partialText}`;
+    const snapshot = (progress.snapshot || "").trim();
+    if (snapshot) {
+      return snapshot;
     }
-    if (progress?.activity) {
-      return `处理中...（步骤 ${step}，${elapsedSec}s）\n\n${progress.activity}`;
+    const partialText = (progress.partialText || "").trim();
+    if (partialText) {
+      return partialText;
     }
-    return `处理中...（步骤 ${step}，${elapsedSec}s）`;
+    const activity = (progress.activity || "").trim();
+    if (activity) {
+      return activity;
+    }
+    return "处理中...";
   }
 
   formatFinalMessage({ response }: { response: string }): string {

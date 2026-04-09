@@ -129,17 +129,17 @@ export class CodexRuntime {
   }
 
   buildProgressSnapshot(state: ProgressState): string {
-    const lines = [];
-    if (state.activity) {
-      lines.push(`状态：${state.activity}`);
-    } else {
-      lines.push("状态：处理中");
+    const partial = (state.partialText || "").trim();
+    if (partial) {
+      return partial;
     }
-    if (state.partialText) {
-      lines.push("");
-      lines.push(state.partialText);
+
+    const activity = (state.activity || "").trim();
+    if (activity) {
+      return activity;
     }
-    return lines.join("\n");
+
+    return "处理中";
   }
 
   describeActivity(item: RuntimeEventItem | undefined): string {
@@ -165,80 +165,163 @@ export class CodexRuntime {
     return "";
   }
 
+  shouldRetryWithoutStreaming(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error || "");
+    if (!message) {
+      return false;
+    }
+    return (
+      message.includes("Reconnecting...") ||
+      message.includes("stream disconnected") ||
+      message.includes("timeout waiting for child process to exit")
+    );
+  }
+
+  isRecoverableStreamError(message: string): boolean {
+    return (
+      message.includes("Reconnecting...") ||
+      message.includes("timeout waiting for child process to exit")
+    );
+  }
+
   async runTaskStream({ threadId, mode, workspace, prompt, signal, onProgress }: RunTaskStreamInput) {
     const thread = this.getThread({ threadId, mode, workspace });
-    const stream = await thread.runStreamed(prompt, { signal });
     const startedAt = Date.now();
 
-    let usage = null;
-    let finalResponse = "";
-    let activity = "";
-    let eventCount = 0;
-    const itemsById = new Map<string, RuntimeEventItem>();
+    try {
+      const stream = await thread.runStreamed(prompt, { signal });
 
-    if (onProgress) {
-      await onProgress({
-        activity: "已接收任务，准备执行",
-        partialText: "",
-        snapshot: this.buildProgressSnapshot({
-          activity: "已接收任务，准备执行",
-          partialText: "",
-        }),
-        eventCount,
-        elapsedMs: 0,
-      });
-    }
-
-    for await (const event of stream.events) {
-      if (event.type === "turn.completed") {
-        usage = event.usage;
-        continue;
-      }
-
-      if (event.type === "turn.failed") {
-        throw new Error(event.error?.message || "turn failed");
-      }
-
-      if (event.type === "error") {
-        throw new Error(event.message || "stream failed");
-      }
-
-      if (!event.type.startsWith("item.")) {
-        continue;
-      }
-      eventCount += 1;
-
-      const item = event.item as RuntimeEventItem;
-      itemsById.set(item.id, item);
-      const nextActivity = this.describeActivity(item);
-      if (nextActivity) {
-        activity = nextActivity;
-      }
-
-      if (item.type === "agent_message") {
-        finalResponse = (item.text || "").trim();
-      }
+      let usage = null;
+      let finalResponse = "";
+      let activity = "";
+      let eventCount = 0;
+      const itemsById = new Map<string, RuntimeEventItem>();
+      let lastSnapshot = "";
 
       if (onProgress) {
+        const snapshot = this.buildProgressSnapshot({
+          activity: "已接收任务，准备执行",
+          partialText: "",
+        });
+        lastSnapshot = snapshot;
         await onProgress({
-          activity,
-          partialText: finalResponse,
-          snapshot: this.buildProgressSnapshot({
+          activity: "已接收任务，准备执行",
+          partialText: "",
+          snapshot,
+          eventCount,
+          elapsedMs: 0,
+        });
+      }
+
+      for await (const event of stream.events) {
+        if (event.type === "turn.completed") {
+          usage = event.usage;
+          continue;
+        }
+
+        if (event.type === "turn.failed") {
+          throw new Error(event.error?.message || "turn failed");
+        }
+
+        if (event.type === "error") {
+          const message = event.message || "stream failed";
+          if (this.isRecoverableStreamError(message)) {
+            this.logger.warn("codex.stream.recoverable_error", { message, workspace });
+            if (onProgress) {
+              const snapshot = this.buildProgressSnapshot({
+                activity: "模型连接波动，正在自动重试",
+                partialText: finalResponse,
+              });
+              if (snapshot !== lastSnapshot) {
+                lastSnapshot = snapshot;
+                await onProgress({
+                  activity: "模型连接波动，正在自动重试",
+                  partialText: finalResponse,
+                  snapshot,
+                  eventCount,
+                  elapsedMs: Date.now() - startedAt,
+                });
+              }
+            }
+            continue;
+          }
+          throw new Error(message);
+        }
+
+        if (!event.type.startsWith("item.")) {
+          continue;
+        }
+        eventCount += 1;
+
+        const item = event.item as RuntimeEventItem;
+        itemsById.set(item.id, item);
+        const nextActivity = this.describeActivity(item);
+        if (nextActivity) {
+          activity = nextActivity;
+        }
+
+        if (item.type === "agent_message") {
+          finalResponse = (item.text || "").trim();
+        }
+
+        if (onProgress) {
+          const snapshot = this.buildProgressSnapshot({
             activity,
             partialText: finalResponse,
-          }),
-          eventCount,
+          });
+          if (snapshot === lastSnapshot) {
+            continue;
+          }
+          lastSnapshot = snapshot;
+          await onProgress({
+            activity,
+            partialText: finalResponse,
+            snapshot,
+            eventCount,
+            elapsedMs: Date.now() - startedAt,
+          });
+        }
+      }
+
+      return {
+        threadId: thread.id,
+        finalResponse,
+        items: [...itemsById.values()],
+        usage,
+      };
+    } catch (error) {
+      if (!this.shouldRetryWithoutStreaming(error) || signal.aborted) {
+        throw error;
+      }
+
+      this.logger.warn("codex.stream.retry_non_streaming", {
+        message: error instanceof Error ? error.message : String(error || ""),
+        workspace,
+      });
+
+      if (onProgress) {
+        const snapshot = this.buildProgressSnapshot({
+          activity: "流式连接不稳定，正在切换为普通模式重试",
+          partialText: "",
+        });
+        await onProgress({
+          activity: "流式连接不稳定，正在切换为普通模式重试",
+          partialText: "",
+          snapshot,
+          eventCount: 0,
           elapsedMs: Date.now() - startedAt,
         });
       }
-    }
 
-    return {
-      threadId: thread.id,
-      finalResponse,
-      items: [...itemsById.values()],
-      usage,
-    };
+      const result = await thread.run(prompt, { signal });
+      const normalizedFinalResponse = normalizeFinalResponse(result);
+      return {
+        threadId: thread.id,
+        finalResponse: normalizedFinalResponse,
+        items: result.items,
+        usage: result.usage,
+      };
+    }
   }
 
   async runTask({ threadId, mode, workspace, prompt, signal }: RunTaskInput) {

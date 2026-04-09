@@ -27,9 +27,18 @@ export class LarkClient {
   }
 
   async getCurrentUserOpenId(): Promise<string> {
-    const output = await runLarkCli(["auth", "status"]);
-    const payload = parseJsonOrNull(output);
-    return payload?.userOpenId ?? "";
+    try {
+      const output = await runLarkCli(["auth", "status"]);
+      const payload = parseJsonOrNull(output);
+      return payload?.userOpenId ?? "";
+    } catch (_error) {
+      const fallbackOutput = await runLarkCli(["auth", "list"]);
+      const payload = parseJsonOrNull(fallbackOutput);
+      if (Array.isArray(payload) && payload.length > 0) {
+        return String(payload[0]?.userOpenId || "");
+      }
+      return "";
+    }
   }
 
   async callApi({
