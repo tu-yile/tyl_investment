@@ -20,9 +20,7 @@ The Feishu/Codex gateway remains in-repo as a secondary subsystem that can be st
 - `npm run start -- workflow:run --workflow=daily-position-decision --date=2026-04-09`
 - `npm run start -- workflow:resume --workflow=daily-position-decision --thread-id=daily-position-decision:2026-04-09`
 - `npm run investment:validate`
-- `npm run investment:daily`
 - `npm run investment:rebuild-state`
-- `npm run investment:db:sync-markdown -- --source-root=/path/to/legacy/investment`
 - `npm run gateway` starts the Feishu gateway subsystem directly
 - `npm run start -- gateway` also starts the Feishu gateway through the primary entrypoint
 
@@ -86,7 +84,7 @@ npm run start -- gateway
 
 - `src/index.ts` primary entrypoint, now routed to the investment engine
 - `src/investment/` investment CLI, workflow platform, agent runtime, storage
-- `investment/` Markdown knowledge, state, workflows, outputs, DB assets
+- `investment/` Markdown knowledge, state, outputs, DB assets
 - `src/gateway/bootstrap.ts` gateway subsystem composition root
 - `src/gateway/` Feishu routing/session/command orchestration
 - `src/lark/` Feishu transport and rendering

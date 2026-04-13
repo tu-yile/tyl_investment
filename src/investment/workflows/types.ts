@@ -21,7 +21,6 @@ export interface WorkflowMetadata {
   trigger?: string;
   objective: string;
   steps: string[];
-  markdownPath: string;
 }
 
 export interface WorkflowExecutionArtifacts {
@@ -101,7 +100,12 @@ export interface WorkflowDefinition<
   name: string;
   outputName: string;
   implementationStatus: WorkflowImplementationStatus;
-  markdownPath: string;
+  priority: string;
+  primaryTrigger?: string;
+  rerunTrigger?: string;
+  trigger?: string;
+  objective: string;
+  steps: string[];
   agentDependencies: AgentId[];
   supportsResume: boolean;
   buildThreadId(input: TStartInput): string;
@@ -113,7 +117,6 @@ export interface WorkflowCatalogItem {
   id: WorkflowId;
   implementationStatus: WorkflowImplementationStatus;
   supportsResume: boolean;
-  markdownPath: string;
   metadata: WorkflowMetadata;
 }
 

@@ -16,7 +16,6 @@
 ### 继续留在 Markdown 的内容
 
 - `config/*.md`
-- `workflows/*.md`
 - `agents/*.md`
 - `knowledge/industries/*.md` 的正文知识层
 - `knowledge/companies/*/thesis.md` 的长文本正文

@@ -4,7 +4,7 @@
 
 ## 设计原则
 
-- 配置、流程、agent contract、知识库正文继续使用 Markdown
+- 配置、agent contract、知识库正文继续使用 Markdown
 - SQLite 负责运行态状态、审批闭环与历史审计
 - TypeScript 运行时负责读取 SQLite + Markdown、执行 workflow、生成导出产物
 - v1 聚焦每日持仓决策流，不自动下单，人工保留最终审批权
@@ -12,11 +12,9 @@
 ## 目录说明
 
 - `config/`: 策略、风险、置信度规则
-- `workflows/`: 每条工作流定义
 - `agents/`: 各 agent 的 contract
 - `knowledge/industries/`: 行业知识库
 - `knowledge/companies/`: 公司 thesis 记忆
-- `state/`: 仅保留说明性文件；运行态状态已切到 SQLite
 - `output/`: 每日操作单与中间卡片
 - `db/`: 数据库设计文档和建表 SQL
 
@@ -29,17 +27,14 @@ npm run start -- workflow:list
 npm run start -- workflow:run --workflow=daily-position-decision --date=2026-04-09
 npm run start -- workflow:resume --workflow=daily-position-decision --thread-id=daily-position-decision:2026-04-09 --decision=approve --reviewer=TuYile
 npm run investment:validate
-npm run investment:daily
-npm run investment -- approve-sheet --date=2026-04-09 --decision=approve --reviewer=TuYile
 npm run investment:rebuild-state
 npm run investment:db:init-local
-npm run investment:db:sync-markdown -- --source-root=/path/to/legacy/investment
 ```
 
 ## 当前 v1 能力
 
 - 校验核心 Markdown schema
-- 校验 workflow registry 与 `investment/workflows/*.md` 元数据一致性
+- 校验 workflow registry 定义完整性
 - 从 SQLite 加载持仓、候选池、市场上下文、待办项和结构化 thesis / industry 运行态
 - 从 Markdown 加载行业知识正文、公司 thesis 正文和规则配置
 - 通过 workflow registry 启动和恢复 workflow
@@ -47,7 +42,7 @@ npm run investment:db:sync-markdown -- --source-root=/path/to/legacy/investment
 - 8 个业务 agent 节点通过 Codex app server 执行
 - 生成 `Position Update Card`
 - 生成《今日持仓操作单》草稿并在审批节点中断
-- 通过 `approve-sheet` 恢复 graph 并完成状态写回
+- 通过 `workflow:resume --workflow=daily-position-decision` 恢复 graph 并完成状态写回
 - 通过 `## Analysis` + `## Handoff` 合约解析 agent 输出
 - 记录 workflow / agent / operation sheet / approval / execution 全链路运行审计到 SQLite
 
@@ -56,7 +51,7 @@ npm run investment:db:sync-markdown -- --source-root=/path/to/legacy/investment
 当前 `src/investment/workflows/` 已成为 workflow 平台层，负责：
 
 - workflow definition / registry / runtime dispatch
-- workflow Markdown 元数据校验
+- workflow 元数据单点配置
 - workflow 级运行审计
 - daily workflow 的实现挂载
 
@@ -89,10 +84,9 @@ npm run investment:db:sync-markdown -- --source-root=/path/to/legacy/investment
 说明：
 状态加载、状态写回、审批恢复和最终收尾不再作为 agent 定义，后续应以系统节点承接。
 
-## 当前 daily-run 执行方式
+## 当前每日流执行方式
 
-当前 `daily-run` 作为 `daily-position-decision` 的兼容别名存在；
-真实执行入口已统一走 `workflow:run --workflow=daily-position-decision`。
+真实执行入口统一走 `workflow:run --workflow=daily-position-decision`。
 
 其运行态 state 已拆成两层：
 
@@ -116,11 +110,11 @@ npm run investment:db:sync-markdown -- --source-root=/path/to/legacy/investment
 
 说明：
 
-- `daily-run` 首次执行会生成草稿并停在 `human_approval`
-- `approve-sheet` 是 `workflow:resume --workflow=daily-position-decision` 的兼容别名
+- `workflow:run --workflow=daily-position-decision` 首次执行会生成草稿并停在 `human_approval`
+- `workflow:resume --workflow=daily-position-decision` 负责继续审批写回
 - 8 个业务节点不再走本地启发式主逻辑，而是通过 `codex app-server --listen stdio://` 做 LLM 执行
 - agent prompt 以 `investment/agents/*.md` 为主，代码补充运行时上下文与 `## Handoff` 契约
-- 如果 SQLite 与旧 Markdown 状态数据分叉，统一以 SQLite 为准
+- workflow 配置与说明统一以 `src/investment/workflows/` 的 TS registry 为准
 
 ## 数据存储演进
 

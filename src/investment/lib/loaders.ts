@@ -2,12 +2,9 @@ import path from "node:path";
 import { listMarkdownFiles, readText } from "./filesystem.js";
 import { parseMarkdownDocument, stringifyMarkdownDocument } from "./frontmatter.js";
 import type {
-  CandidateRecord,
   Frontmatter,
   IndustryRecord,
   MarkdownDocument,
-  MarketContext,
-  PositionRecord,
   RulesConfig,
   ThesisRecord,
 } from "../types.js";
@@ -52,36 +49,6 @@ export async function loadCollection(dirPath: string): Promise<MarkdownDocument[
   const files = await listMarkdownFiles(dirPath);
   const docs = await Promise.all(files.map((file) => loadMarkdown(file)));
   return docs;
-}
-
-export async function loadPositions(root: string): Promise<PositionRecord[]> {
-  // position 目录只接受结构化持仓文件，运行时不会猜字段含义。
-  const docs = await loadCollection(path.join(root, "portfolio/positions"));
-  return docs.map((doc) => ({
-    ticker: getTicker(doc.frontmatter, "ticker"),
-    name: getString(doc.frontmatter, "name"),
-    weight: getNumber(doc.frontmatter, "weight"),
-    costBasis: getNumber(doc.frontmatter, "cost_basis"),
-    holdingDays: getNumber(doc.frontmatter, "holding_days"),
-    sector: getString(doc.frontmatter, "sector"),
-    industryId: getString(doc.frontmatter, "industry_id"),
-    thesisId: getString(doc.frontmatter, "thesis_id"),
-    path: doc.path,
-  }));
-}
-
-export async function loadCandidates(root: string): Promise<CandidateRecord[]> {
-  const docs = await loadCollection(path.join(root, "portfolio/candidates"));
-  return docs.map((doc) => ({
-    ticker: getTicker(doc.frontmatter, "ticker"),
-    name: getString(doc.frontmatter, "name"),
-    targetEntryWeight: getNumber(doc.frontmatter, "target_entry_weight"),
-    industryId: getString(doc.frontmatter, "industry_id"),
-    thesisId: getString(doc.frontmatter, "thesis_id"),
-    sourceFlow: getString(doc.frontmatter, "source_flow"),
-    status: getString(doc.frontmatter, "status"),
-    path: doc.path,
-  }));
 }
 
 export async function loadTheses(root: string): Promise<ThesisRecord[]> {
@@ -135,24 +102,6 @@ export async function loadRules(root: string): Promise<RulesConfig> {
     largeTradeThreshold: getNumber(risk.frontmatter, "large_trade_threshold"),
     replacementScoreGap: getNumber(strategy.frontmatter, "replacement_score_gap"),
   };
-}
-
-export async function loadMarketContext(root: string): Promise<MarketContext> {
-  const doc = await loadMarkdown(path.join(root, "state/market-context.md"));
-  return {
-    asOf: getString(doc.frontmatter, "as_of"),
-    marketTone: getString(doc.frontmatter, "market_tone"),
-    policyBias: getString(doc.frontmatter, "policy_bias"),
-    liquidityView: getString(doc.frontmatter, "liquidity_view"),
-    headlineRisk: getString(doc.frontmatter, "headline_risk"),
-    priorityWatchpoints: getStringArray(doc.frontmatter, "priority_watchpoints"),
-    notes: doc.sections["Overnight Notes"] ?? "",
-  };
-}
-
-export async function loadPendingItems(root: string): Promise<string[]> {
-  const doc = await loadMarkdown(path.join(root, "state/pending-items.md"));
-  return getStringArray(doc.frontmatter, "items");
 }
 
 export function indexBy<T>(items: T[], keySelector: (item: T) => string): Map<string, T> {

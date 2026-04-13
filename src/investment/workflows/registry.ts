@@ -1,7 +1,6 @@
 import path from "node:path";
 import type { AgentId } from "../agents/types.js";
 import { validateRegisteredAgents } from "../agents/registry.js";
-import { loadMarkdown } from "../lib/loaders.js";
 import { dailyPositionDecisionWorkflow } from "./daily-position-decision/index.js";
 import type {
   ResumeWorkflowRequest,
@@ -27,16 +26,22 @@ function createPlannedWorkflowDefinition(args: {
   id: WorkflowId;
   name: string;
   outputName: string;
-  markdownPath: string;
+  priority: string;
+  trigger?: string;
+  objective: string;
+  steps: string[];
   agentDependencies?: AgentId[];
 }): WorkflowDefinition {
-  // planned workflow 先注册到平台里，让 CLI、validate、文档校验和后续接入路径都稳定下来。
+  // planned workflow 先注册到平台里，让 CLI、validate 和后续接入路径都稳定下来。
   return {
     id: args.id,
     name: args.name,
     outputName: args.outputName,
     implementationStatus: "planned",
-    markdownPath: args.markdownPath,
+    priority: args.priority,
+    trigger: args.trigger,
+    objective: args.objective,
+    steps: args.steps,
     agentDependencies: args.agentDependencies ?? [],
     supportsResume: false,
     buildThreadId(input) {
@@ -55,7 +60,15 @@ function registerBuiltinWorkflows(): void {
       id: "emergency-reassessment",
       name: "持仓事件应急流",
       outputName: "应急重评单",
-      markdownPath: "workflows/emergency-reassessment.md",
+      priority: "P0",
+      trigger: "event_driven",
+      objective: "在重大公告、业绩暴雷、政策突变或异常波动出现时，不等待下一交易日，直接快速重评持仓与风险暴露。",
+      steps: [
+        "确认触发事件",
+        "定位受影响持仓和行业",
+        "快速重评 thesis 和风险",
+        "输出应急建议",
+      ],
       agentDependencies: [
         "information-collector",
         "industry-analyst",
@@ -71,64 +84,53 @@ function registerBuiltinWorkflows(): void {
       id: "post-close-update",
       name: "盘后状态更新流",
       outputName: "盘后状态更新摘要",
-      markdownPath: "workflows/post-close-update.md",
+      priority: "P0",
+      trigger: "15:30",
+      objective: "更新持仓状态、执行结果、thesis 状态与观察项，为下一交易日提供干净状态。",
+      steps: [
+        "读取当日执行结果",
+        "更新 position 和 thesis",
+        "记录新增观察项",
+        "刷新组合记忆",
+      ],
       agentDependencies: [],
     }),
   );
 }
 
-function expectStringValue(value: unknown, key: string, markdownPath: string): string {
-  if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`Expected non-empty string field "${key}" in ${markdownPath}`);
-  }
-  return value.trim();
-}
-
-function parseWorkflowSteps(sectionBody: string): string[] {
-  return sectionBody
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => line.replace(/^\d+\.\s+/, "").replace(/^-\s+/, "").trim())
-    .filter(Boolean);
-}
-
-async function loadWorkflowMetadata(
-  investmentRoot: string,
-  definition: WorkflowDefinition,
-): Promise<WorkflowMetadata> {
-  const markdownPath = path.join(investmentRoot, definition.markdownPath);
-  const doc = await loadMarkdown(markdownPath);
-  const workflowId = expectStringValue(doc.frontmatter.workflow_id, "workflow_id", markdownPath);
-  const name = expectStringValue(doc.frontmatter.name, "name", markdownPath);
-  const outputName = expectStringValue(doc.frontmatter.output_name, "output_name", markdownPath);
-  const priority = expectStringValue(doc.frontmatter.priority, "priority", markdownPath);
-
-  if (doc.frontmatter.kind !== "workflow") {
-    throw new Error(`Expected kind=workflow in ${markdownPath}`);
-  }
-  if (workflowId !== definition.id) {
-    throw new Error(`Workflow id mismatch for ${markdownPath}: code=${definition.id} markdown=${workflowId}`);
-  }
-  if (name !== definition.name) {
-    throw new Error(`Workflow name mismatch for ${markdownPath}: code=${definition.name} markdown=${name}`);
-  }
-  if (outputName !== definition.outputName) {
-    throw new Error(`Workflow output_name mismatch for ${markdownPath}: code=${definition.outputName} markdown=${outputName}`);
-  }
-
+function createWorkflowMetadata(definition: WorkflowDefinition): WorkflowMetadata {
   return {
     workflowId: definition.id,
-    name,
-    outputName,
-    priority,
-    primaryTrigger: typeof doc.frontmatter.primary_trigger === "string" ? doc.frontmatter.primary_trigger : undefined,
-    rerunTrigger: typeof doc.frontmatter.rerun_trigger === "string" ? doc.frontmatter.rerun_trigger : undefined,
-    trigger: typeof doc.frontmatter.trigger === "string" ? doc.frontmatter.trigger : undefined,
-    objective: doc.sections["Objective"] ?? "",
-    steps: parseWorkflowSteps(doc.sections["Steps"] ?? ""),
-    markdownPath,
+    name: definition.name,
+    outputName: definition.outputName,
+    priority: definition.priority,
+    primaryTrigger: definition.primaryTrigger,
+    rerunTrigger: definition.rerunTrigger,
+    trigger: definition.trigger,
+    objective: definition.objective,
+    steps: definition.steps,
   };
+}
+
+function validateWorkflowDefinition(definition: WorkflowDefinition): void {
+  if (!definition.id.trim()) {
+    throw new Error("workflow id must be non-empty");
+  }
+  if (!definition.name.trim()) {
+    throw new Error(`workflow name must be non-empty: ${definition.id}`);
+  }
+  if (!definition.outputName.trim()) {
+    throw new Error(`workflow outputName must be non-empty: ${definition.id}`);
+  }
+  if (!definition.priority.trim()) {
+    throw new Error(`workflow priority must be non-empty: ${definition.id}`);
+  }
+  if (!definition.objective.trim()) {
+    throw new Error(`workflow objective must be non-empty: ${definition.id}`);
+  }
+  if (definition.steps.length === 0 || definition.steps.some((step) => !step.trim())) {
+    throw new Error(`workflow steps must be non-empty: ${definition.id}`);
+  }
 }
 
 function buildWorkflowSummary(result: WorkflowExecutionResult): Record<string, unknown> {
@@ -196,6 +198,7 @@ function persistWorkflowResult(
 }
 
 export function registerWorkflow(definition: WorkflowDefinition): void {
+  validateWorkflowDefinition(definition);
   const existing = workflowRegistry.get(definition.id);
   if (existing) {
     throw new Error(`workflow already registered: ${definition.id}`);
@@ -211,23 +214,22 @@ export function getWorkflowDefinition(workflowId: WorkflowId): WorkflowDefinitio
   return definition;
 }
 
-export async function listWorkflows(investmentRoot: string): Promise<WorkflowCatalogItem[]> {
+export async function listWorkflows(): Promise<WorkflowCatalogItem[]> {
   const workflows: WorkflowCatalogItem[] = [];
   for (const definition of workflowRegistry.values()) {
     workflows.push({
       id: definition.id,
       implementationStatus: definition.implementationStatus,
       supportsResume: definition.supportsResume,
-      markdownPath: definition.markdownPath,
-      metadata: await loadWorkflowMetadata(investmentRoot, definition),
+      metadata: createWorkflowMetadata(definition),
     });
   }
   return workflows;
 }
 
-export async function validateRegisteredWorkflowMetadata(investmentRoot: string): Promise<void> {
+export async function validateRegisteredWorkflows(investmentRoot: string): Promise<void> {
   for (const definition of workflowRegistry.values()) {
-    await loadWorkflowMetadata(investmentRoot, definition);
+    validateWorkflowDefinition(definition);
   }
   await validateRegisteredAgents(investmentRoot);
 }
@@ -246,7 +248,7 @@ export async function startWorkflow<TStartInput extends WorkflowStartInput>(
   }
 
   const repoRoot = path.dirname(request.investmentRoot);
-  const workflowMetadata = await loadWorkflowMetadata(request.investmentRoot, definition);
+  const workflowMetadata = createWorkflowMetadata(definition);
   const threadId = request.threadId ?? definition.buildThreadId(request);
   const triggerType = request.triggerType ?? "manual";
   const startedAt = nowIso();
@@ -358,7 +360,7 @@ export async function resumeWorkflow<TResumeInput extends WorkflowResumeInput>(
   }
 
   const repoRoot = path.dirname(request.investmentRoot);
-  const workflowMetadata = await loadWorkflowMetadata(request.investmentRoot, definition);
+  const workflowMetadata = createWorkflowMetadata(definition);
   const [{ resolveInvestmentDbPath }, { InvestmentStore }] = await Promise.all([
     import("../storage/db-config.js"),
     import("../storage/investment-store.js"),

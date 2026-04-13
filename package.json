@@ -20,11 +20,9 @@
     "gateway:logs": "npm run build && node dist/dashboard/server.js",
     "lint": "node -e \"console.log('No lint configured')\"",
     "investment": "npm run build && node dist/investment/index.js",
-    "investment:daily": "npm run build && node dist/investment/index.js daily-run",
     "investment:validate": "npm run build && node dist/investment/index.js validate-md",
     "investment:rebuild-state": "npm run build && node dist/investment/index.js rebuild-state",
     "investment:db:init-local": "zsh investment/db/init-local-db.sh",
-    "investment:db:sync-markdown": "npm run build && node dist/investment/index.js db:sync-markdown",
     "test": "npm run build:server && node --test dist/**/*.test.js"
   },
   "repository": {
