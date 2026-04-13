@@ -149,3 +149,27 @@ v1 推荐继续使用 SQLite，原因：
 2. 先把 `positions`、`candidate_pool_entries`、`theses`、`operation_sheets` 跑起来
 3. 再改 `src/investment` 读取 DB 而不是读取对应 Markdown
 4. 保留 Markdown 作为知识资产，不和运行态数据混用
+
+## 本地 SQLite 初始化
+
+当前仓库已经补了本地初始化脚本和示例种子数据：
+
+- `schema.sql`
+- `seed.local.sql`
+- `init-local-db.sh`
+
+在仓库根目录执行：
+
+```bash
+zsh investment/db/init-local-db.sh
+```
+
+默认会生成：
+
+`investment/data/investment.sqlite3`
+
+## 当前裁决规则
+
+- 运行态唯一真源是 SQLite
+- 如果 SQLite 与旧 Markdown 状态数据分叉，统一以 SQLite 为准
+- `db:sync-markdown` 只会补齐缺失记录，不会用旧 Markdown 覆盖现有 SQLite

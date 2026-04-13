@@ -1,18 +1,31 @@
 {
   "name": "tyl_investment",
   "version": "1.0.0",
-  "description": "涂一乐的投研团队",
+  "description": "Investment OS 主系统，内置 Feishu/Codex 网关子系统",
   "type": "module",
   "main": "dist/index.js",
+  "imports": {
+    "#src/*": {
+      "types": "./src/*",
+      "default": "./dist/*"
+    }
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "npm run build:server && npm run build:console",
+    "build:server": "tsc -p tsconfig.json",
+    "build:console": "tsc -p src/dashboard/client/tsconfig.json --noEmit && vite build --config src/dashboard/client/vite.config.ts",
     "start": "npm run build && node dist/index.js",
     "dev": "npm run build && node dist/index.js",
+    "gateway": "npm run build && node dist/gateway/index.js",
+    "gateway:logs": "npm run build && node dist/dashboard/server.js",
     "lint": "node -e \"console.log('No lint configured')\"",
     "investment": "npm run build && node dist/investment/index.js",
     "investment:daily": "npm run build && node dist/investment/index.js daily-run",
     "investment:validate": "npm run build && node dist/investment/index.js validate-md",
-    "investment:rebuild-state": "npm run build && node dist/investment/index.js rebuild-state"
+    "investment:rebuild-state": "npm run build && node dist/investment/index.js rebuild-state",
+    "investment:db:init-local": "zsh investment/db/init-local-db.sh",
+    "investment:db:sync-markdown": "npm run build && node dist/investment/index.js db:sync-markdown",
+    "test": "npm run build:server && node --test dist/**/*.test.js"
   },
   "repository": {
     "type": "git",
@@ -26,11 +39,23 @@
   },
   "homepage": "https://github.com/tu-yile/tyl_investment#readme",
   "dependencies": {
+    "@langchain/core": "^1.1.39",
+    "@langchain/langgraph": "^1.2.8",
+    "@langchain/langgraph-checkpoint-sqlite": "^1.0.1",
     "@larksuite/cli": "^1.0.4",
-    "@openai/codex-sdk": "^0.118.0"
+    "@openai/codex-sdk": "^0.118.0",
+    "fast-xml-parser": "^5.5.11",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.14.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
-    "typescript": "^6.0.2"
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.8"
   }
 }

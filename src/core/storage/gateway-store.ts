@@ -10,13 +10,13 @@ function nowIso(): string {
 export interface GatewayEvent {
   eventId: string;
   messageId?: string | null;
-  chatId: string;
-  senderOpenId?: string | null;
+  conversationId: string;
+  senderId?: string | null;
   text?: string;
 }
 
 export interface SessionState {
-  chatId: string;
+  conversationId: string;
   threadId: string | null;
   workspace: string | null;
   mode: string;
@@ -25,7 +25,7 @@ export interface SessionState {
 
 export interface RunRecord {
   runId: string;
-  chatId: string;
+  conversationId: string;
   threadId: string | null;
   prompt: string;
   status: string;
@@ -35,7 +35,7 @@ export interface RunRecord {
 
 export interface ApprovalRecord {
   approvalId: number;
-  chatId: string;
+  conversationId: string;
   kind: string;
   payload: unknown;
   status: string;
@@ -106,8 +106,8 @@ export class GatewayStore {
       stmt.run(
         event.eventId,
         event.messageId ?? null,
-        event.chatId,
-        event.senderOpenId ?? null,
+        event.conversationId,
+        event.senderId ?? null,
         event.text ?? "",
         nowIso(),
       );
@@ -126,15 +126,15 @@ export class GatewayStore {
       .run(nowIso(), eventId);
   }
 
-  getSession(chatId: string, defaultMode = "read"): SessionState {
+  getSession(conversationId: string, defaultMode = "read"): SessionState {
     const row = this.db
       .prepare("SELECT chat_id, thread_id, workspace, mode, active_run_id FROM sessions WHERE chat_id = ?")
-      .get(chatId) as
+      .get(conversationId) as
       | { chat_id: string; thread_id: string | null; workspace: string | null; mode: string; active_run_id: string | null }
       | undefined;
     if (row) {
       return {
-        chatId: row.chat_id,
+        conversationId: row.chat_id,
         threadId: row.thread_id,
         workspace: row.workspace,
         mode: row.mode,
@@ -143,9 +143,9 @@ export class GatewayStore {
     }
     this.db
       .prepare("INSERT INTO sessions (chat_id, mode, updated_at) VALUES (?, ?, ?)")
-      .run(chatId, defaultMode, nowIso());
+      .run(conversationId, defaultMode, nowIso());
     return {
-      chatId,
+      conversationId,
       threadId: null,
       workspace: null,
       mode: defaultMode,
@@ -166,7 +166,7 @@ export class GatewayStore {
           updated_at = excluded.updated_at
       `)
       .run(
-        session.chatId,
+        session.conversationId,
         session.threadId ?? null,
         session.workspace ?? null,
         session.mode ?? "read",
@@ -175,8 +175,8 @@ export class GatewayStore {
       );
   }
 
-  setSessionWorkspace(chatId: string, workspace: string): SessionState {
-    const session = this.getSession(chatId);
+  setSessionWorkspace(conversationId: string, workspace: string): SessionState {
+    const session = this.getSession(conversationId);
     session.workspace = workspace;
     session.threadId = null;
     session.activeRunId = null;
@@ -184,8 +184,8 @@ export class GatewayStore {
     return session;
   }
 
-  clearSessionWorkspace(chatId: string, defaultMode = "read"): SessionState {
-    const session = this.getSession(chatId, defaultMode);
+  clearSessionWorkspace(conversationId: string, defaultMode = "read"): SessionState {
+    const session = this.getSession(conversationId, defaultMode);
     session.workspace = null;
     session.threadId = null;
     session.activeRunId = null;
@@ -194,29 +194,29 @@ export class GatewayStore {
     return session;
   }
 
-  setSessionThread(chatId: string, threadId: string | null): SessionState {
-    const session = this.getSession(chatId);
+  setSessionThread(conversationId: string, threadId: string | null): SessionState {
+    const session = this.getSession(conversationId);
     session.threadId = threadId;
     this.upsertSession(session);
     return session;
   }
 
-  setSessionMode(chatId: string, mode: string): SessionState {
-    const session = this.getSession(chatId);
+  setSessionMode(conversationId: string, mode: string): SessionState {
+    const session = this.getSession(conversationId);
     session.mode = mode;
     this.upsertSession(session);
     return session;
   }
 
-  setActiveRun(chatId: string, runId: string | null): SessionState {
-    const session = this.getSession(chatId);
+  setActiveRun(conversationId: string, runId: string | null): SessionState {
+    const session = this.getSession(conversationId);
     session.activeRunId = runId;
     this.upsertSession(session);
     return session;
   }
 
-  clearActiveRun(chatId: string): SessionState {
-    return this.setActiveRun(chatId, null);
+  clearActiveRun(conversationId: string): SessionState {
+    return this.setActiveRun(conversationId, null);
   }
 
   recoverDanglingRuns(reason = "Recovered on gateway startup"): string[] {
@@ -239,14 +239,22 @@ export class GatewayStore {
     this.db.prepare("UPDATE sessions SET mode = ?, updated_at = ?").run(mode, nowIso());
   }
 
-  createRun({ chatId, threadId, prompt }: { chatId: string; threadId: string | null; prompt: string }): string {
+  createRun({
+    conversationId,
+    threadId,
+    prompt,
+  }: {
+    conversationId: string;
+    threadId: string | null;
+    prompt: string;
+  }): string {
     const runId = randomUUID();
     this.db
       .prepare(`
         INSERT INTO runs (run_id, chat_id, thread_id, prompt, status, started_at)
         VALUES (?, ?, ?, ?, ?, ?)
       `)
-      .run(runId, chatId, threadId ?? null, prompt, "running", nowIso());
+      .run(runId, conversationId, threadId ?? null, prompt, "running", nowIso());
     return runId;
   }
 
@@ -281,7 +289,7 @@ export class GatewayStore {
     }
     return {
       runId: row.run_id,
-      chatId: row.chat_id,
+      conversationId: row.chat_id,
       threadId: row.thread_id,
       prompt: row.prompt,
       status: row.status,
@@ -290,13 +298,13 @@ export class GatewayStore {
     };
   }
 
-  createApproval(chatId: string, kind: string, payload: unknown): number {
+  createApproval(conversationId: string, kind: string, payload: unknown): number {
     const result = this.db
       .prepare(`
         INSERT INTO approvals (chat_id, kind, payload_json, status, created_at)
         VALUES (?, ?, ?, 'pending', ?)
       `)
-      .run(chatId, kind, JSON.stringify(payload), nowIso());
+      .run(conversationId, kind, JSON.stringify(payload), nowIso());
     return Number(result.lastInsertRowid);
   }
 
@@ -311,7 +319,7 @@ export class GatewayStore {
     }
     return {
       approvalId: row.approval_id,
-      chatId: row.chat_id,
+      conversationId: row.chat_id,
       kind: row.kind,
       payload: JSON.parse(row.payload_json),
       status: row.status,
@@ -324,10 +332,10 @@ export class GatewayStore {
       .run(status, nowIso(), approvalId);
   }
 
-  countPendingApprovals(chatId: string): number {
+  countPendingApprovals(conversationId: string): number {
     const row = this.db
       .prepare("SELECT COUNT(*) AS count FROM approvals WHERE chat_id = ? AND status = 'pending'")
-      .get(chatId) as { count: number } | undefined;
+      .get(conversationId) as { count: number } | undefined;
     return Number(row?.count ?? 0);
   }
 }

@@ -15,10 +15,15 @@ import type {
 // 这些 getter 统一承担 schema 守门职责，让错误尽早暴露在加载阶段。
 function getString(frontmatter: Frontmatter, key: string): string {
   const value = frontmatter[key];
-  if (typeof value !== "string") {
+  if (typeof value !== "string" && typeof value !== "number") {
     throw new Error(`Expected string field "${key}"`);
   }
-  return value;
+  return String(value);
+}
+
+function getTicker(frontmatter: Frontmatter, key: string): string {
+  const value = getString(frontmatter, key).trim();
+  return /^\d+$/.test(value) ? value.padStart(6, "0") : value;
 }
 
 function getNumber(frontmatter: Frontmatter, key: string): number {
@@ -53,7 +58,7 @@ export async function loadPositions(root: string): Promise<PositionRecord[]> {
   // position 目录只接受结构化持仓文件，运行时不会猜字段含义。
   const docs = await loadCollection(path.join(root, "portfolio/positions"));
   return docs.map((doc) => ({
-    ticker: getString(doc.frontmatter, "ticker"),
+    ticker: getTicker(doc.frontmatter, "ticker"),
     name: getString(doc.frontmatter, "name"),
     weight: getNumber(doc.frontmatter, "weight"),
     costBasis: getNumber(doc.frontmatter, "cost_basis"),
@@ -68,7 +73,7 @@ export async function loadPositions(root: string): Promise<PositionRecord[]> {
 export async function loadCandidates(root: string): Promise<CandidateRecord[]> {
   const docs = await loadCollection(path.join(root, "portfolio/candidates"));
   return docs.map((doc) => ({
-    ticker: getString(doc.frontmatter, "ticker"),
+    ticker: getTicker(doc.frontmatter, "ticker"),
     name: getString(doc.frontmatter, "name"),
     targetEntryWeight: getNumber(doc.frontmatter, "target_entry_weight"),
     industryId: getString(doc.frontmatter, "industry_id"),
@@ -86,7 +91,7 @@ export async function loadTheses(root: string): Promise<ThesisRecord[]> {
     .filter((doc) => doc.frontmatter.kind === "thesis")
     .map((doc) => ({
       thesisId: getString(doc.frontmatter, "thesis_id"),
-      ticker: getString(doc.frontmatter, "ticker"),
+      ticker: getTicker(doc.frontmatter, "ticker"),
       companyName: getString(doc.frontmatter, "company_name"),
       industryId: getString(doc.frontmatter, "industry_id"),
       status: getString(doc.frontmatter, "status"),

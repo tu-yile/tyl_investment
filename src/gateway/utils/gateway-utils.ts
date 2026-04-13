@@ -1,4 +1,5 @@
-import type { IncomingEvent, TimingData } from "../types/gateway-models.js";
+import type { IncomingGatewayEvent } from "../types/gateway-transport.js";
+import type { TimingData } from "../types/gateway-models.js";
 
 export function safeParseJson(text: string): Record<string, any> | null {
   try {
@@ -35,7 +36,7 @@ export function formatDuration(ms: number | null): string {
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
-export function createTiming(event: IncomingEvent): TimingData {
+export function createTiming(event: IncomingGatewayEvent): TimingData {
   return {
     receivedAt: event.receivedAt ?? Date.now(),
     dequeuedAt: event.dequeuedAt ?? null,

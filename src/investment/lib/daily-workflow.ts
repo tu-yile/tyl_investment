@@ -22,6 +22,10 @@ import type {
   ThesisRecord,
 } from "../types.js";
 
+// Deprecated: the active daily runtime now reads SQLite state through
+// `workflows/daily-position-decision` and keeps this heuristic implementation
+// only as a rendering/reference fallback during the migration period.
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -32,7 +36,7 @@ function round(value: number): number {
 
 // 这里不是训练模型，而是把 thesis、行业和风险标签压成一个可比较的工作分数。
 // v1 先用透明规则打分，后面再替换成更细的 agent 输出或统计模型。
-function makeConfidence(thesis: ThesisRecord, industry: IndustryRecord): number {
+export function makeConfidence(thesis: ThesisRecord, industry: IndustryRecord): number {
   let score = thesis.confidenceBase;
 
   if (thesis.status === "strengthened") {
@@ -69,14 +73,14 @@ function makeConfidence(thesis: ThesisRecord, industry: IndustryRecord): number 
   return round(clamp(score, 0.05, 0.95));
 }
 
-function describeWhyNow(thesis: ThesisRecord, industry: IndustryRecord): string {
+export function describeWhyNow(thesis: ThesisRecord, industry: IndustryRecord): string {
   const base = thesis.sections["Core Claim"] ?? "";
   return `${industry.name} 当前行业视角为 ${industry.currentView}，最近变化为 ${industry.recentChange}；${base.slice(0, 60)}...`;
 }
 
 // 单票重评遵循你设定的基础动作规则：
 // thesis 弱化先减，thesis 强化且估值可接受才考虑加，没催化默认持有。
-function evaluatePosition(
+export function evaluatePosition(
   position: PositionRecord,
   thesis: ThesisRecord,
   industry: IndustryRecord,
@@ -134,7 +138,7 @@ function evaluatePosition(
 }
 
 // 候选池评估暂时只回答“值不值得进入替代排序”，不直接生成强制买入动作。
-function evaluateCandidate(
+export function evaluateCandidate(
   candidate: { ticker: string; name: string; targetEntryWeight: number },
   thesis: ThesisRecord,
   industry: IndustryRecord,
@@ -155,7 +159,7 @@ function evaluateCandidate(
 
 // 风险闸门只做组合级约束，不重新发明单票判断。
 // 它的职责是踩刹车，而不是替 CIO 做最终排序。
-function evaluateRiskGate(
+export function evaluateRiskGate(
   positions: PositionRecord[],
   updates: PositionUpdateCard[],
   rules: RulesConfig,
@@ -199,7 +203,7 @@ function evaluateRiskGate(
   return { decision, alerts, notToDo };
 }
 
-function renderUpdateCard(runDate: string, update: PositionUpdateCard): string {
+export function renderUpdateCard(runDate: string, update: PositionUpdateCard): string {
   // Position Update Card 是最适合人工逐票复核的中间文档，所以单独写文件。
   return stringifyMarkdownDocument(
     {
@@ -223,7 +227,7 @@ function renderUpdateCard(runDate: string, update: PositionUpdateCard): string {
   );
 }
 
-function renderOperationSheet(result: Omit<DailyRunResult, "outputMarkdownPath" | "outputJsonPath">): string {
+export function renderOperationSheet(result: Omit<DailyRunResult, "outputMarkdownPath" | "outputJsonPath">): string {
   // 最终操作单保持“人读优先”，因此直接渲染成接近投委会摘要的 Markdown。
   const requiredBlock =
     result.requiredActions.length === 0
