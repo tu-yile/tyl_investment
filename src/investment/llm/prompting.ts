@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { resolveInvestmentAgentsPath } from "../runtime/paths.js";
 import type { IndustryRecord, ThesisRecord } from "../types.js";
 import { buildAgentRuntimeHeader, codexModelOrDefault, runAgentTurn, stringifyPromptContext } from "./app-server-client.js";
 
@@ -11,7 +12,7 @@ export function nowIso(): string {
 }
 
 export async function extractAgentMarkdown(investmentRoot: string, agentId: string): Promise<string> {
-  return fs.readFile(path.join(investmentRoot, "agents", `${agentId}.md`), "utf8");
+  return fs.readFile(resolveInvestmentAgentsPath(investmentRoot, `${agentId}.md`), "utf8");
 }
 
 export function buildPrompt(agentId: string, responseContract: string, contextBlocks: string[]): string {

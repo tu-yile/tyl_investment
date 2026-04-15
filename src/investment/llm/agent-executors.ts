@@ -773,22 +773,41 @@ const chiefInvestmentOfficerDefinition: AgentDefinition<
   applyResult(result, privateState) {
     const updateMap = new Map(privateState.analysis.positionUpdates.map((item) => [item.ticker, item]));
     const candidateMap = new Map(privateState.analysis.candidateAssessments.map((item) => [item.ticker, item]));
+    const proposalMap = new Map(privateState.analysis.portfolioActionProposals.map((item) => [item.ticker, item]));
+
+    function resolvePositionActionCard(ticker: string, fieldName: string): PositionUpdateCard {
+      const existing = updateMap.get(ticker);
+      if (existing) {
+        return existing;
+      }
+
+      const proposal = proposalMap.get(ticker);
+      if (proposal) {
+        return {
+          ticker: proposal.ticker,
+          name: proposal.name,
+          thesisStatus: "unchanged",
+          todayView: proposal.rationale,
+          suggestedWeightChange: proposal.weightChange,
+          confidence: proposal.confidence,
+          whyNow: proposal.rationale,
+          riskFlags: proposal.constraints,
+          action: proposal.action,
+          priority: proposal.confidence >= 0.75 ? "high" : proposal.confidence >= 0.55 ? "medium" : "low",
+          score: proposal.confidence,
+        };
+      }
+
+      throw new Error(`chief-investment-officer returned unknown ${fieldName} ticker ${ticker}`);
+    }
 
     const requiredActions = result.requiredActions.map((ticker) => {
-      const update = updateMap.get(ticker);
-      if (!update) {
-        throw new Error(`chief-investment-officer returned unknown required action ticker ${ticker}`);
-      }
-      return update;
+      return resolvePositionActionCard(ticker, "required action");
     });
     const optionalActions = result.optionalActions.map((ref) => {
       if (ref.startsWith("position:")) {
         const ticker = ref.slice("position:".length);
-        const update = updateMap.get(ticker);
-        if (!update) {
-          throw new Error(`chief-investment-officer returned unknown optional position ${ref}`);
-        }
-        return update;
+        return resolvePositionActionCard(ticker, `optional position ${ref}`);
       }
       if (ref.startsWith("candidate:")) {
         const ticker = ref.slice("candidate:".length);
@@ -801,11 +820,7 @@ const chiefInvestmentOfficerDefinition: AgentDefinition<
       throw new Error(`chief-investment-officer optional_actions must use position:<ticker> or candidate:<ticker>, got ${ref}`);
     });
     const continueHolding = result.continueHolding.map((ticker) => {
-      const update = updateMap.get(ticker);
-      if (!update) {
-        throw new Error(`chief-investment-officer returned unknown continue_holding ticker ${ticker}`);
-      }
-      return update;
+      return resolvePositionActionCard(ticker, "continue_holding");
     });
 
     return {

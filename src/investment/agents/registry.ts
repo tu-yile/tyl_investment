@@ -1,5 +1,6 @@
 import path from "node:path";
 import { readText } from "../lib/filesystem.js";
+import { resolveInvestmentRuntimePathsFromRoot } from "../runtime/paths.js";
 import {
   builtInAgentDefinitions,
 } from "../llm/agent-executors.js";
@@ -41,8 +42,9 @@ export function listAgents(): RegisteredAgentDescriptor[] {
 }
 
 export async function validateRegisteredAgents(investmentRoot: string): Promise<void> {
+  const runtimePaths = resolveInvestmentRuntimePathsFromRoot(investmentRoot);
   for (const descriptor of listAgents()) {
-    const pathname = path.join(investmentRoot, descriptor.markdownPath);
+    const pathname = path.join(runtimePaths.envRoot, descriptor.markdownPath);
     const markdown = await readText(pathname);
     if (!markdown.trim()) {
       throw new Error(`Agent markdown is empty: ${pathname}`);

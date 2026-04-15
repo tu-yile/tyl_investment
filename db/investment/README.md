@@ -160,7 +160,7 @@ v1 推荐继续使用 SQLite，原因：
 在仓库根目录执行：
 
 ```bash
-zsh investment/db/init-local-db.sh
+zsh db/investment/init-local-db.sh
 ```
 
 默认会生成：

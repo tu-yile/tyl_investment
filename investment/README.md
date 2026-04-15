@@ -16,7 +16,7 @@
 - `knowledge/industries/`: 行业知识库
 - `knowledge/companies/`: 公司 thesis 记忆
 - `output/`: 每日操作单与中间卡片
-- `db/`: 数据库设计文档和建表 SQL
+- `runtime/test/`: test 环境隔离数据根目录
 
 ## 命令
 
@@ -29,6 +29,9 @@ npm run start -- workflow:resume --workflow=daily-position-decision --thread-id=
 npm run investment:validate
 npm run investment:rebuild-state
 npm run investment:db:init-local
+npm run investment:test:init
+npm run investment:test:validate
+npm run investment:test:cleanup
 ```
 
 ## 当前 v1 能力
@@ -115,6 +118,7 @@ npm run investment:db:init-local
 - 8 个业务节点不再走本地启发式主逻辑，而是通过 `codex app-server --listen stdio://` 做 LLM 执行
 - agent prompt 以 `investment/agents/*.md` 为主，代码补充运行时上下文与 `## Handoff` 契约
 - workflow 配置与说明统一以 `src/investment/workflows/` 的 TS registry 为准
+- `INVESTMENT_ENV=test` 时，agents/config/knowledge/data/output 全部切到 `investment/runtime/test/`
 
 ## 数据存储演进
 
@@ -125,6 +129,6 @@ npm run investment:db:init-local
 
 可参考：
 
-- `db/README.md`
-- `db/schema.sql`
-- `db/seed.local.sql`
+- `db/investment/README.md`
+- `db/investment/schema.sql`
+- `db/investment/seed.local.sql`

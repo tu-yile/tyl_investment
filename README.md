@@ -52,7 +52,9 @@ npm run start -- gateway
 ## Optional Environment Variables
 
 - Investment engine:
+  - `INVESTMENT_ENV`: runtime data environment (`prod` by default, `test` for isolated test assets)
   - `INVESTMENT_DB_PATH`: override `investment/data/investment.sqlite3`
+  - `INVESTMENT_LANGGRAPH_CHECKPOINT_DB_PATH`: override LangGraph checkpoint SQLite path
   - `INVESTMENT_CODEX_MODEL`: override model used by investment agents
   - `INVESTMENT_CODEX_REASONING_EFFORT`: override reasoning effort for investment agents
   - `INVESTMENT_CODEX_APP_SERVER_TIMEOUT_MS`: app server timeout in ms
@@ -84,7 +86,8 @@ npm run start -- gateway
 
 - `src/index.ts` primary entrypoint, now routed to the investment engine
 - `src/investment/` investment CLI, workflow platform, agent runtime, storage
-- `investment/` Markdown knowledge, state, outputs, DB assets
+- `investment/` environment-scoped runtime data and prompts
+- `db/investment/` shared SQLite schema, seed, and init scripts
 - `src/gateway/bootstrap.ts` gateway subsystem composition root
 - `src/gateway/` Feishu routing/session/command orchestration
 - `src/lark/` Feishu transport and rendering

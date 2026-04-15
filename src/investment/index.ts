@@ -1,5 +1,6 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { resolveInvestmentRuntimePathsFromRoot } from "./runtime/paths.js";
 import type { WorkflowExecutionResult, WorkflowId, WorkflowTriggerType } from "./workflows/types.js";
 
 const WORKFLOW_IDS: WorkflowId[] = [
@@ -23,6 +24,10 @@ function parseArgs(argv: string[]): { command: string; options: string[] } {
 function parseOption(options: string[], name: string): string | undefined {
   const prefix = `--${name}=`;
   return options.find((option) => option.startsWith(prefix))?.slice(prefix.length);
+}
+
+function hasOption(options: string[], name: string): boolean {
+  return options.includes(`--${name}`);
 }
 
 function parseWorkflowId(options: string[]): WorkflowId {
@@ -72,16 +77,17 @@ function printWorkflowResult(result: WorkflowExecutionResult): void {
 async function validateMarkdown(root: string): Promise<void> {
   const { loadCollection } = await import("./lib/loaders.js");
   const { validateRegisteredWorkflows } = await import("./workflows/registry.js");
+  const runtimePaths = resolveInvestmentRuntimePathsFromRoot(root);
   // validate 只校验运行时真正依赖的 Markdown 资产，说明性 README 与 workflow 文档不参与。
   const targets = [
-    "config",
-    "agents",
-    "knowledge/industries",
-    "knowledge/companies",
+    runtimePaths.configRoot,
+    runtimePaths.agentsRoot,
+    path.join(runtimePaths.knowledgeRoot, "industries"),
+    path.join(runtimePaths.knowledgeRoot, "companies"),
   ];
 
   for (const target of targets) {
-    const docs = await loadCollection(path.join(root, target));
+    const docs = await loadCollection(target);
     for (const doc of docs) {
       if (path.basename(doc.path) === "README.md") {
         continue;
@@ -102,6 +108,8 @@ function printUsage(): void {
   console.log("  node dist/index.js workflow:list");
   console.log("  node dist/index.js workflow:run --workflow=daily-position-decision --date=2026-04-09");
   console.log("  node dist/index.js workflow:resume --workflow=daily-position-decision --thread-id=daily-position-decision:2026-04-09");
+  console.log("  node dist/index.js init-test-runtime [--reset]");
+  console.log("  node dist/index.js cleanup-test-runtime [--force-test-path]");
   console.log("  node dist/index.js rebuild-state");
   console.log("  node dist/index.js gateway");
 }
@@ -184,6 +192,18 @@ export async function runInvestmentCli(argv: string[]): Promise<void> {
       const { rebuildPortfolioMemory } = await import("./lib/state-manager.js");
       const outputPath = await rebuildPortfolioMemory(investmentRoot);
       console.log(`rebuilt portfolio memory: ${outputPath}`);
+      return;
+    }
+    case "init-test-runtime": {
+      const { initializeTestRuntime } = await import("./runtime/test-runtime.js");
+      const testRuntimePath = await initializeTestRuntime(repoRoot, hasOption(options, "reset"));
+      console.log(`initialized test runtime: ${testRuntimePath}`);
+      return;
+    }
+    case "cleanup-test-runtime": {
+      const { cleanupTestRuntime } = await import("./runtime/test-runtime.js");
+      const deletedPath = await cleanupTestRuntime(repoRoot, hasOption(options, "force-test-path"));
+      console.log(`cleaned test runtime: ${deletedPath}`);
       return;
     }
     case "gateway": {

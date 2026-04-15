@@ -8,6 +8,7 @@ import {
   applyApprovalWriteback,
   persistDailyDraft,
 } from "./state-manager.js";
+import { resolveInvestmentRuntimePathsForEnv } from "../runtime/paths.js";
 import { InvestmentStore } from "../storage/investment-store.js";
 import { resolveInvestmentDbPath } from "../storage/db-config.js";
 
@@ -25,6 +26,20 @@ async function createTempInvestmentRoot(): Promise<{ tempRoot: string; investmen
     investmentRoot,
     dbPath: resolveInvestmentDbPath(tempRoot),
   };
+}
+
+async function withInvestmentEnv<T>(env: "prod" | "test", work: () => Promise<T>): Promise<T> {
+  const previous = process.env.INVESTMENT_ENV;
+  process.env.INVESTMENT_ENV = env;
+  try {
+    return await work();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.INVESTMENT_ENV;
+    } else {
+      process.env.INVESTMENT_ENV = previous;
+    }
+  }
 }
 
 async function seedKnowledgeFiles(investmentRoot: string): Promise<void> {
@@ -263,4 +278,75 @@ test("persistDailyDraft and applyApprovalWriteback close the sqlite loop", async
   assert.match(thesisMarkdown, /Latest Decision 2026-04-10/);
 
   await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
+test("persistDailyDraft writes workflow output into the test runtime tree", async () => {
+  await withInvestmentEnv("test", async () => {
+    const { tempRoot, investmentRoot, dbPath } = await createTempInvestmentRoot();
+    const testPaths = resolveInvestmentRuntimePathsForEnv(tempRoot, "test");
+
+    const store = new InvestmentStore({ dbPath });
+    try {
+      store.upsertPortfolio({
+        portfolioId: "main-portfolio",
+        name: "主组合",
+        strategyStyle: "主动多头",
+        marketScope: "A股",
+        holdingPeriod: "中线",
+      });
+      store.upsertInstrument({
+        ticker: "300750",
+        name: "宁德时代",
+      });
+      store.createWorkflowRun({
+        workflowRunId: "run-test",
+        workflowId: "daily-position-decision",
+        portfolioId: "main-portfolio",
+        runDate: "2026-04-11",
+        triggerType: "manual",
+        status: "running",
+      });
+    } finally {
+      store.close();
+    }
+
+    const result = await persistDailyDraft(investmentRoot, {
+      workflowRunId: "run-test",
+      runDate: "2026-04-11",
+      marketAttitude: "中性偏积极",
+      riskGate: {
+        decision: "pass",
+        alerts: ["测试环境允许执行"],
+        notToDo: [],
+      },
+      positionUpdates: [
+        {
+          ticker: "300750",
+          name: "宁德时代",
+          thesisStatus: "unchanged",
+          todayView: "测试环境生成草稿",
+          suggestedWeightChange: 0,
+          confidence: 0.75,
+          whyNow: "验证输出隔离路径",
+          riskFlags: [],
+          action: "hold",
+          priority: "medium",
+          score: 0.75,
+        },
+      ],
+      candidateAssessments: [],
+      requiredActions: [],
+      optionalActions: [],
+      continueHolding: [],
+      focusWatchlist: [],
+      dailyOperationSheetBody: "## 测试环境\n- 验证输出路径",
+    });
+
+    assert.equal(
+      result.outputMarkdownPath,
+      path.join(testPaths.outputRoot, "daily", "2026-04-11", "2026-04-11-daily-operation-sheet.md"),
+    );
+    await assert.doesNotReject(fs.access(result.outputMarkdownPath));
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
 });

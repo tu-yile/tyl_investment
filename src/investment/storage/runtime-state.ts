@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { loadMarkdown, loadRules } from "../lib/loaders.js";
+import { resolveInvestmentRuntimePathsFromRoot } from "../runtime/paths.js";
 import type {
   CandidateRecord,
   IndustryRecord,
@@ -22,13 +23,14 @@ function resolveStoredMarkdownPath(investmentRoot: string, storedPath: string | 
   if (!storedPath) {
     return null;
   }
+  const runtimePaths = resolveInvestmentRuntimePathsFromRoot(investmentRoot);
   if (path.isAbsolute(storedPath)) {
     return storedPath;
   }
   if (storedPath.startsWith("investment/")) {
     return path.join(resolveRepoRoot(investmentRoot), storedPath);
   }
-  return path.join(investmentRoot, storedPath);
+  return path.join(runtimePaths.envRoot, storedPath);
 }
 
 async function readSectionsFromMarkdown(

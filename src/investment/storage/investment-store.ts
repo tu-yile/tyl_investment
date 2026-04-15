@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { resolveInvestmentRuntimePaths } from "../runtime/paths.js";
 import type {
   CandidateAssessment,
   PositionUpdateCard,
@@ -489,7 +490,7 @@ export class InvestmentStore {
 
   constructor(options: InvestmentStoreOptions) {
     fs.mkdirSync(path.dirname(options.dbPath), { recursive: true });
-    this.schemaPath = options.schemaPath ?? path.join(process.cwd(), "investment/db/schema.sql");
+    this.schemaPath = options.schemaPath ?? resolveInvestmentRuntimePaths(process.cwd()).schemaPath;
     this.db = new DatabaseSync(options.dbPath);
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA synchronous = NORMAL;");

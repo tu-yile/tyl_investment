@@ -1,6 +1,9 @@
-import path from "node:path";
 import { listMarkdownFiles, readText } from "./filesystem.js";
 import { parseMarkdownDocument, stringifyMarkdownDocument } from "./frontmatter.js";
+import {
+  resolveInvestmentConfigPath,
+  resolveInvestmentKnowledgePath,
+} from "../runtime/paths.js";
 import type {
   Frontmatter,
   IndustryRecord,
@@ -53,7 +56,7 @@ export async function loadCollection(dirPath: string): Promise<MarkdownDocument[
 
 export async function loadTheses(root: string): Promise<ThesisRecord[]> {
   // 公司知识目录里可能以后还会出现别的 Markdown，这里先按 kind 显式过滤 thesis。
-  const docs = await loadCollection(path.join(root, "knowledge/companies"));
+  const docs = await loadCollection(resolveInvestmentKnowledgePath(root, "companies"));
   return docs
     .filter((doc) => doc.frontmatter.kind === "thesis")
     .map((doc) => ({
@@ -74,7 +77,7 @@ export async function loadTheses(root: string): Promise<ThesisRecord[]> {
 }
 
 export async function loadIndustries(root: string): Promise<IndustryRecord[]> {
-  const docs = await loadCollection(path.join(root, "knowledge/industries"));
+  const docs = await loadCollection(resolveInvestmentKnowledgePath(root, "industries"));
   return docs.map((doc) => ({
     industryId: getString(doc.frontmatter, "industry_id"),
     name: getString(doc.frontmatter, "name"),
@@ -89,9 +92,9 @@ export async function loadIndustries(root: string): Promise<IndustryRecord[]> {
 
 export async function loadRules(root: string): Promise<RulesConfig> {
   // 执行层只关心关键阈值，因此在这里把多个 Markdown 合并成一份运行时配置。
-  const confidence = await loadMarkdown(path.join(root, "config/confidence-rules.md"));
-  const risk = await loadMarkdown(path.join(root, "config/risk-rules.md"));
-  const strategy = await loadMarkdown(path.join(root, "config/strategy.md"));
+  const confidence = await loadMarkdown(resolveInvestmentConfigPath(root, "confidence-rules.md"));
+  const risk = await loadMarkdown(resolveInvestmentConfigPath(root, "risk-rules.md"));
+  const strategy = await loadMarkdown(resolveInvestmentConfigPath(root, "strategy.md"));
 
   return {
     clearActionThreshold: getNumber(confidence.frontmatter, "clear_action_threshold"),

@@ -5,6 +5,9 @@ import { parseMarkdownDocument, stringifyMarkdownDocument } from "./frontmatter.
 import { loadTheses, overwriteMarkdown } from "./loaders.js";
 import { renderUpdateCard } from "./daily-workflow.js";
 import { renderOperationSheetFromBody } from "../llm/agent-executors.js";
+import {
+  resolveInvestmentOutputPath,
+} from "../runtime/paths.js";
 import { resolveInvestmentDbPath } from "../storage/db-config.js";
 import {
   DEFAULT_PORTFOLIO_ID,
@@ -214,7 +217,12 @@ async function writeActionLog(args: {
   notes: string;
   sheetMarkdownPath: string;
 }): Promise<string> {
-  const actionLogPath = path.join(args.investmentRoot, "output/daily", args.runDate, `${args.runDate}-${args.decision}-action-log.md`);
+  const actionLogPath = resolveInvestmentOutputPath(
+    args.investmentRoot,
+    "daily",
+    args.runDate,
+    `${args.runDate}-${args.decision}-action-log.md`,
+  );
   await writeText(
     actionLogPath,
     stringifyMarkdownDocument(
@@ -270,7 +278,7 @@ export async function rebuildPortfolioMemory(
     ...theses.map((item) => `- ${item.companyName}(${item.ticker}): ${item.status}, updated ${item.lastUpdated}`),
   ].join("\n");
 
-  const pathname = path.join(investmentRoot, "output/state", "portfolio-memory.md");
+  const pathname = resolveInvestmentOutputPath(investmentRoot, "state", "portfolio-memory.md");
   await writeText(
     pathname,
     stringifyMarkdownDocument(
@@ -309,7 +317,7 @@ export async function persistDailyDraft(
   input: PersistDailyDraftInput,
 ): Promise<PersistDailyDraftResult> {
   const portfolioId = input.portfolioId ?? DEFAULT_PORTFOLIO_ID;
-  const dailyDir = path.join(investmentRoot, "output/daily", input.runDate);
+  const dailyDir = resolveInvestmentOutputPath(investmentRoot, "daily", input.runDate);
   const cardsDir = path.join(dailyDir, "position-update-cards");
   const outputMarkdownPath = path.join(dailyDir, `${input.runDate}-daily-operation-sheet.md`);
 
@@ -403,7 +411,7 @@ export async function applyApprovalWriteback(
 
     const outputMarkdownPath =
       operationSheet.markdownPath ??
-      path.join(investmentRoot, "output/daily", input.runDate, `${input.runDate}-daily-operation-sheet.md`);
+      resolveInvestmentOutputPath(investmentRoot, "daily", input.runDate, `${input.runDate}-daily-operation-sheet.md`);
 
     await writeText(
       outputMarkdownPath,

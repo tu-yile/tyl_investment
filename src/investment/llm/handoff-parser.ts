@@ -36,13 +36,16 @@ export function extractHandoff(text: string): string {
 }
 
 export function extractRepeatedBlocks(body: string, heading: string): string[] {
-  const regex = new RegExp(`^###\\s+${escapeRegExp(heading)}\\s*$`, "gm");
+  const regex = /^###\s+(.+)\s*$/gm;
   const matches = [...body.matchAll(regex)];
-  return matches.map((match, index) => {
-    const start = match.index! + match[0].length;
-    const end = matches[index + 1] ? matches[index + 1].index! : body.length;
-    return body.slice(start, end).trim();
-  });
+  return matches
+    .filter((match) => match[1].trim() === heading)
+    .map((match) => {
+      const start = match.index! + match[0].length;
+      const nextMatch = matches.find((candidate) => (candidate.index ?? -1) > (match.index ?? -1));
+      const end = nextMatch ? nextMatch.index! : body.length;
+      return body.slice(start, end).trim();
+    });
 }
 
 export function extractNamedSection(body: string, heading: string): string | null {

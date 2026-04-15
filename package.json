@@ -22,7 +22,11 @@
     "investment": "npm run build && node dist/investment/index.js",
     "investment:validate": "npm run build && node dist/investment/index.js validate-md",
     "investment:rebuild-state": "npm run build && node dist/investment/index.js rebuild-state",
-    "investment:db:init-local": "zsh investment/db/init-local-db.sh",
+    "investment:db:init-local": "zsh db/investment/init-local-db.sh",
+    "investment:test:init": "INVESTMENT_ENV=test npm run build && INVESTMENT_ENV=test node dist/investment/index.js init-test-runtime",
+    "investment:test:validate": "INVESTMENT_ENV=test npm run build && INVESTMENT_ENV=test node dist/investment/index.js validate-md",
+    "investment:test:rebuild-state": "INVESTMENT_ENV=test npm run build && INVESTMENT_ENV=test node dist/investment/index.js rebuild-state",
+    "investment:test:cleanup": "INVESTMENT_ENV=test npm run build && INVESTMENT_ENV=test node dist/investment/index.js cleanup-test-runtime",
     "test": "npm run build:server && node --test dist/**/*.test.js"
   },
   "repository": {

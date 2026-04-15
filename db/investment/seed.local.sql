@@ -27,7 +27,8 @@ INSERT INTO industries (
 ) VALUES
   ('power-equipment', '电力设备与储能', 'investment/knowledge/industries/power-equipment.md', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   ('medical-devices', '医疗器械', 'investment/knowledge/industries/medical-devices.md', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  ('smart-evs', '智能电动车', 'investment/knowledge/industries/smart-evs.md', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+  ('smart-evs', '智能电动车', 'investment/knowledge/industries/smart-evs.md', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('non-ferrous-metals', '有色金属', 'investment/knowledge/industries/non-ferrous-metals.md', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
 INSERT INTO industry_knowledge_versions (
   industry_id, version_no, current_view, recent_change, key_signals_json, watchpoints_json,
@@ -53,6 +54,13 @@ INSERT INTO industry_knowledge_versions (
     '["价格战升级","出口政策扰动","渠道库存变化"]',
     '智能电动车行业核心观察点在新车型、出口节奏和价格竞争强度。',
     'investment/knowledge/industries/smart-evs.md', 'system', CURRENT_TIMESTAMP
+  ),
+  (
+    'non-ferrous-metals', 1, 'neutral', 'lithium_and_aluminum_prices_stabilizing',
+    '["锂价波动趋缓","电解铝供给约束仍在","顺周期预期与制造业需求共振"]',
+    '["商品价格回落","能源成本抬升","海外需求扰动"]',
+    '有色金属行业当前聚焦锂价企稳、铝价景气韧性以及供需错配能否延续。',
+    'investment/knowledge/industries/non-ferrous-metals.md', 'system', CURRENT_TIMESTAMP
   );
 
 INSERT INTO instruments (
@@ -60,7 +68,9 @@ INSERT INTO instruments (
 ) VALUES
   ('300750', '宁德时代', 'CN-A', 'equity', 'power-equipment', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   ('300760', '迈瑞医疗', 'CN-A', 'equity', 'medical-devices', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  ('002594', '比亚迪', 'CN-A', 'equity', 'smart-evs', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+  ('002594', '比亚迪', 'CN-A', 'equity', 'smart-evs', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('002466', '天齐锂业', 'CN-A', 'equity', 'non-ferrous-metals', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('000807', '云铝股份', 'CN-A', 'equity', 'non-ferrous-metals', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
 INSERT INTO portfolios (
   portfolio_id, name, strategy_style, market_scope, holding_period, status, created_at, updated_at
@@ -85,6 +95,16 @@ INSERT INTO theses (
     'thesis-002594', '002594', 'smart-evs', 'strengthened', 'moderate', 'okay', 'medium',
     0.74, '["观察出口销量","跟踪价格战变化"]',
     '2026-04-08', 'investment/knowledge/companies/002594-BYD/thesis.md', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+  ),
+  (
+    'thesis-002466', '002466', 'non-ferrous-metals', 'unchanged', 'moderate', 'okay', 'high',
+    0.61, '["跟踪锂价企稳持续性","观察库存与海外需求变化"]',
+    '2026-04-09', 'investment/knowledge/companies/002466-TianqiLithium/thesis.md', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+  ),
+  (
+    'thesis-000807', '000807', 'non-ferrous-metals', 'strengthened', 'moderate', 'okay', 'medium',
+    0.63, '["跟踪铝价与氧化铝成本","关注水电和供给约束变化"]',
+    '2026-04-09', 'investment/knowledge/companies/000807-YunAluminum/thesis.md', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
   );
 
 INSERT INTO thesis_versions (
@@ -117,6 +137,24 @@ INSERT INTO thesis_versions (
     '- 行业仍有景气支撑\n- 新品和出口是有效增量',
     '- 暂无重大证伪点',
     CURRENT_TIMESTAMP
+  ),
+  (
+    'thesis-002466', 1, 'local-seed', 'system',
+    '天齐锂业的核心投资逻辑在于锂资源禀赋、全球化资产布局以及锂价企稳后利润弹性的释放。',
+    '- 锂价边际企稳\n- 资源端成本优势\n- 海外资产协同改善盈利弹性',
+    '- 锂价再次深度下行\n- 需求恢复持续弱于预期\n- 资产负债表压力重新上升',
+    '- 锂资源龙头地位仍在\n- 行业去库存逐步推进',
+    '- 锂价弹性仍高度依赖商品周期',
+    CURRENT_TIMESTAMP
+  ),
+  (
+    'thesis-000807', 1, 'local-seed', 'system',
+    '云铝股份的核心投资逻辑在于绿色水电铝成本优势、供给约束环境下的盈利韧性以及顺周期需求修复弹性。',
+    '- 电解铝供给约束延续\n- 水电成本优势\n- 制造业和出口需求修复',
+    '- 铝价明显回落\n- 能源与氧化铝成本大幅抬升\n- 需求修复不及预期',
+    '- 行业供给弹性仍受约束\n- 绿色铝成本曲线具备竞争力',
+    '- 周期股估值修复持续性仍待验证',
+    CURRENT_TIMESTAMP
   );
 
 INSERT INTO market_context_snapshots (
@@ -141,6 +179,16 @@ INSERT INTO positions (
     'main-portfolio', '300760', 'open', 3.0, 256.0, '2026-01-10T09:30:00+08:00',
     'thesis-300760', 'standard', '当前 thesis 稳定但缺乏短期强催化，默认以持有为主。',
     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+  ),
+  (
+    'main-portfolio', '002466', 'open', 2.0, 31.5, '2026-03-18T09:30:00+08:00',
+    'thesis-002466', 'standard', '测试环境补充锂资源持仓，用于验证资源股在每日持仓决策流中的处理。',
+    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+  ),
+  (
+    'main-portfolio', '000807', 'open', 2.0, 16.2, '2026-03-24T09:30:00+08:00',
+    'thesis-000807', 'standard', '测试环境补充铝行业持仓，用于验证顺周期持仓在每日持仓决策流中的处理。',
+    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
   );
 
 INSERT INTO candidate_pool_entries (
@@ -158,15 +206,17 @@ INSERT INTO observation_items (
 ) VALUES
   ('ticker', '300750', 'follow_up', '跟踪储能订单兑现', 'open', 'high', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
   ('ticker', '300760', 'follow_up', '关注迈瑞院端招标节奏', 'open', 'medium', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-  ('ticker', '002594', 'follow_up', '观察比亚迪出口销量', 'open', 'medium', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+  ('ticker', '002594', 'follow_up', '观察比亚迪出口销量', 'open', 'medium', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('ticker', '002466', 'follow_up', '跟踪锂价企稳和行业去库存进展', 'open', 'medium', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('ticker', '000807', 'follow_up', '关注铝价、氧化铝成本和云南水电供给变化', 'open', 'medium', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 
 INSERT INTO portfolio_snapshots (
   portfolio_id, snapshot_date, total_equity_weight, cash_weight, sector_exposure_json, style_exposure_json, risk_budget_json, notes_md, created_at
 ) VALUES
   (
-    'main-portfolio', '2026-04-09', 7.0, 93.0,
-    '{"power-equipment":4.0,"medical-devices":3.0}',
-    '{"growth":4.5,"quality":2.5}',
+    'main-portfolio', '2026-04-09', 11.0, 89.0,
+    '{"power-equipment":4.0,"medical-devices":3.0,"non-ferrous-metals":4.0}',
+    '{"growth":4.5,"quality":2.5,"cyclical":4.0}',
     '{"single_name_regular_cap":5,"single_sector_cap":25}',
     '本地初始化快照。',
     CURRENT_TIMESTAMP
