@@ -1,4 +1,4 @@
-import type { AgentId } from "../agents/types.js";
+import type { AgentId, ArtifactScopeType, ArtifactType } from "../agents/types.js";
 
 export type WorkflowId =
   | "daily-position-decision"
@@ -25,7 +25,6 @@ export interface WorkflowMetadata {
 
 export interface WorkflowExecutionArtifacts {
   outputMarkdownPath?: string;
-  outputJsonPath?: string;
   actionLogPath?: string;
   portfolioMemoryPath?: string;
 }
@@ -64,6 +63,17 @@ export interface WorkflowAgentRunHooks {
     outputSummaryJson?: unknown;
     errorMessage?: string | null;
   }) => Promise<void>;
+  onAgentArtifact?: (args: {
+    agentRunId?: string;
+    workflowRunId: string;
+    agentId: string;
+    artifactType: ArtifactType;
+    scopeType?: ArtifactScopeType;
+    scopeKey?: string;
+    reportMd: string;
+    signalsJson?: unknown;
+    summaryJson?: unknown;
+  }) => Promise<{ artifactId: string; reportPath: string } | void>;
 }
 
 export interface WorkflowRuntimeContext extends WorkflowAgentRunHooks {

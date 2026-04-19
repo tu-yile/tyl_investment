@@ -8,6 +8,7 @@ import {
   interrupt,
 } from "@langchain/langgraph";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
+import type { AgentId } from "../../agents/types.js";
 import { createAgentExecutionContext } from "../../agents/runtime.js";
 import { runRegisteredAgent } from "../../agents/registry.js";
 import { applyApprovalWriteback, persistDailyDraft } from "../../lib/state-manager.js";
@@ -30,19 +31,59 @@ import type {
   CollectionSubject,
   DailyPrivateState,
   DailyRunArtifacts,
-  DailyRunAnalysis,
   DailyRunCollected,
   DailyRunDecision,
+  DailyRunDerivedState,
   DailyRunGraphContext,
   DailyRunGraphResult,
   DailyRunGraphState,
   DailyRunNodeStatus,
+  DailyRunReports,
   DailyRunRuntimeState,
   DailySharedState,
+  OperationSheetItem,
   ResumeDailyRunInput,
   SourceType,
   StartDailyRunInput,
 } from "./types.js";
+
+type DailyNodeId =
+  | "start"
+  | AgentId
+  | "human_approval"
+  | "state_writeback"
+  | "end";
+
+type GraphNodeRef = "__start__" | "__end__" | DailyNodeId;
+
+const DAILY_AGENT_STAGES: Array<{
+  agentId: AgentId;
+  status: DailyRunNodeStatus;
+}> = [
+  { agentId: "information-collector", status: "information_collected" },
+  { agentId: "macro-policy-analyst", status: "macro_analyzed" },
+  { agentId: "industry-analyst", status: "industry_analyzed" },
+  { agentId: "company-analyst", status: "company_analyzed" },
+  { agentId: "bear-case-analyst", status: "bear_case_analyzed" },
+  { agentId: "portfolio-manager", status: "portfolio_built" },
+  { agentId: "risk-officer", status: "risk_checked" },
+];
+
+const DAILY_GRAPH_EDGES: Array<[GraphNodeRef, GraphNodeRef]> = [
+  ["__start__", "start"],
+  ["start", "information-collector"],
+  ["information-collector", "macro-policy-analyst"],
+  ["macro-policy-analyst", "industry-analyst"],
+  ["industry-analyst", "company-analyst"],
+  ["company-analyst", "bear-case-analyst"],
+  ["bear-case-analyst", "portfolio-manager"],
+  ["portfolio-manager", "risk-officer"],
+  ["risk-officer", "chief-investment-officer"],
+  ["chief-investment-officer", "human_approval"],
+  ["human_approval", "state_writeback"],
+  ["state_writeback", "end"],
+  ["end", "__end__"],
+];
 
 const DailyRunGraphAnnotation = Annotation.Root({
   context: Annotation<DailyRunGraphContext>(),
@@ -148,26 +189,19 @@ function emptyCollected(): DailyRunCollected {
   };
 }
 
-function emptyAnalysis(): DailyRunAnalysis {
+function emptyDerived(): DailyRunDerivedState {
   return {
     macroRiskFlags: [],
-    industryViews: [],
-    industryRiskFlags: [],
-    companyViews: [],
-    positionUpdates: [],
-    thesisDeltas: [],
-    bearCaseViews: [],
-    errorConditions: [],
-    disconfirmingSignals: [],
-    candidateAssessments: [],
-    replacementRanking: [],
-    portfolioActionProposals: [],
-    riskAlerts: [],
-    riskLimits: [],
-    requiredActions: [],
-    optionalActions: [],
-    continueHolding: [],
-    focusWatchlist: [],
+    industryStances: [],
+    securityUpdates: [],
+    portfolioActions: [],
+    sheetItems: [],
+  };
+}
+
+function emptyReports(): DailyRunReports {
+  return {
+    byAgent: {},
   };
 }
 
@@ -189,7 +223,8 @@ function emptyRuntime(): DailyRunRuntimeState {
 function emptyPrivateState(): DailyPrivateState {
   return {
     collected: emptyCollected(),
-    analysis: emptyAnalysis(),
+    derived: emptyDerived(),
+    reports: emptyReports(),
     decision: emptyDecision(),
     artifacts: emptyArtifacts(),
     runtime: emptyRuntime(),
@@ -209,21 +244,72 @@ function withNodeStatus(
   };
 }
 
+function findSecurityName(sharedState: DailySharedState, ticker: string | undefined): string | undefined {
+  if (!ticker) {
+    return undefined;
+  }
+  const position = sharedState.positions.find((item) => item.ticker === ticker);
+  if (position) {
+    return position.name;
+  }
+  const candidate = sharedState.candidates.find((item) => item.ticker === ticker);
+  return candidate?.name;
+}
+
+function normalizeSheetRef(ref: string | undefined): string {
+  if (!ref) {
+    return "";
+  }
+  return ref.replace(/^(?:watch|position|candidate|ticker|industry):/, "").trim();
+}
+
+function extractSheetTicker(item: OperationSheetItem): string | undefined {
+  if (!item.ref) {
+    return undefined;
+  }
+  const match = item.ref.match(/^(?:position|candidate|ticker):(.+)$/);
+  return match?.[1];
+}
+
+function formatWeightChange(weightChange: number | undefined): string {
+  if (typeof weightChange !== "number" || Number.isNaN(weightChange) || weightChange === 0) {
+    return "";
+  }
+  return ` ${weightChange > 0 ? "+" : ""}${weightChange}%`;
+}
+
+function summarizeSheetItem(sharedState: DailySharedState, item: OperationSheetItem): string {
+  const ticker = extractSheetTicker(item);
+  const name = findSecurityName(sharedState, ticker);
+  const refLabel = normalizeSheetRef(item.ref);
+
+  if (item.bucket === "watch") {
+    return refLabel || "关注后续变化";
+  }
+
+  const label = ticker
+    ? `${name ?? ticker}(${ticker})`
+    : refLabel || "未命名动作";
+  const action = item.action ?? "watch";
+  return `${label} ${action}${formatWeightChange(item.weightChange)}`.trim();
+}
+
 function buildApprovalPacket(state: DailyRunGraphState): ApprovalPacket {
+  const requiredActions = state.privateState.derived.sheetItems
+    .filter((item) => item.bucket === "required")
+    .map((item) => summarizeSheetItem(state.shared, item));
+  const optionalActions = state.privateState.derived.sheetItems
+    .filter((item) => item.bucket === "optional" || item.bucket === "hold")
+    .map((item) => summarizeSheetItem(state.shared, item));
+
   return {
     runDate: state.context.runDate,
     threadId: state.context.threadId,
-    marketAttitude: state.privateState.analysis.marketAttitude ?? "",
-    riskGateDecision: state.privateState.analysis.riskGate?.decision ?? "pass",
-    requiredActionsSummary: state.privateState.analysis.requiredActions.map(
-      (item) => `${item.name}(${item.ticker}) ${item.action} ${item.suggestedWeightChange}%`,
-    ),
-    optionalActionsSummary: state.privateState.analysis.optionalActions.map((item) =>
-      "todayView" in item
-        ? `${item.name}(${item.ticker}) ${item.action}`
-        : `${item.name}(${item.ticker}) ${item.action}`,
-    ),
-    riskAlerts: state.privateState.analysis.riskAlerts,
+    marketAttitude: state.privateState.derived.marketAttitude ?? "",
+    riskGateDecision: state.privateState.derived.riskGate?.decision ?? "pass",
+    requiredActionsSummary: requiredActions,
+    optionalActionsSummary: optionalActions,
+    riskAlerts: state.privateState.derived.riskGate?.alerts ?? [],
     operationSheetPath: state.privateState.artifacts.outputMarkdownPath,
   };
 }
@@ -237,7 +323,7 @@ function buildFinalResult(
     threadId: state.context.threadId,
     runDate: state.context.runDate,
     outputMarkdownPath: state.privateState.artifacts.outputMarkdownPath,
-    outputJsonPath: state.privateState.artifacts.outputJsonPath,
+    actionLogPath: state.privateState.artifacts.actionLogPath,
     approvalDecision: state.privateState.decision.approvalDecision,
     portfolioMemoryPath: state.privateState.artifacts.portfolioMemoryPath,
     interrupts,
@@ -267,23 +353,24 @@ function createGraphConfig(threadId: string) {
 }
 
 function buildAgentContext(
-  runtimeContext: WorkflowRuntimeContext | undefined,
+  runtimeContext: WorkflowRuntimeContext,
   state: DailyRunGraphState,
-  agentId: Parameters<typeof createAgentExecutionContext>[0]["agentId"],
+  agentId: AgentId,
 ) {
   return createAgentExecutionContext({
     agentId,
     investmentRoot: state.context.investmentRoot,
     workflowId: state.context.workflowId,
-    workflowRunId: runtimeContext?.workflowRunId ?? "compat",
+    workflowRunId: runtimeContext.workflowRunId,
     runDate: state.context.runDate,
     threadId: state.context.threadId,
-    onAgentRunStart: runtimeContext?.onAgentRunStart,
-    onAgentRunFinish: runtimeContext?.onAgentRunFinish,
+    onAgentRunStart: runtimeContext.onAgentRunStart,
+    onAgentRunFinish: runtimeContext.onAgentRunFinish,
+    onAgentArtifact: runtimeContext.onAgentArtifact,
   });
 }
 
-function createDailyRunGraph(repoRoot: string, runtimeContext?: WorkflowRuntimeContext) {
+function createDailyRunGraph(repoRoot: string, runtimeContext: WorkflowRuntimeContext) {
   async function startNode(state: DailyRunGraphState): Promise<Partial<DailyRunGraphState>> {
     const root = state.context.investmentRoot;
     const [positions, candidates, theses, industries, rules, marketContext, pendingItems] = await Promise.all([
@@ -295,6 +382,7 @@ function createDailyRunGraph(repoRoot: string, runtimeContext?: WorkflowRuntimeC
       loadRuntimeMarketContext(root),
       loadRuntimePendingItems(root, DEFAULT_PORTFOLIO_ID),
     ]);
+
     const baseSharedState = {
       positions,
       candidates,
@@ -304,6 +392,7 @@ function createDailyRunGraph(repoRoot: string, runtimeContext?: WorkflowRuntimeC
       marketContext,
       pendingItems,
     };
+
     const shared: DailySharedState = {
       ...baseSharedState,
       collectionScope: {
@@ -313,93 +402,26 @@ function createDailyRunGraph(repoRoot: string, runtimeContext?: WorkflowRuntimeC
         sourceTypes: ["news", "announcements"] as SourceType[],
       },
     };
+
     return {
       shared,
       privateState: withNodeStatus(state.privateState, "initialized"),
     };
   }
 
-  async function informationCollectorNode(state: DailyRunGraphState): Promise<Partial<DailyRunGraphState>> {
+  async function createStandardAgentNode(
+    state: DailyRunGraphState,
+    agentId: AgentId,
+    nextStatus: DailyRunNodeStatus,
+  ): Promise<Partial<DailyRunGraphState>> {
     const nextPrivateState = await runRegisteredAgent(
-      "information-collector",
+      agentId,
       state.shared,
       state.privateState,
-      buildAgentContext(runtimeContext, state, "information-collector"),
+      buildAgentContext(runtimeContext, state, agentId),
     );
     return {
-      privateState: withNodeStatus(nextPrivateState, "information_collected"),
-    };
-  }
-
-  async function macroPolicyAnalystNode(state: DailyRunGraphState): Promise<Partial<DailyRunGraphState>> {
-    const nextPrivateState = await runRegisteredAgent(
-      "macro-policy-analyst",
-      state.shared,
-      state.privateState,
-      buildAgentContext(runtimeContext, state, "macro-policy-analyst"),
-    );
-    return {
-      privateState: withNodeStatus(nextPrivateState, "macro_analyzed"),
-    };
-  }
-
-  async function industryAnalystNode(state: DailyRunGraphState): Promise<Partial<DailyRunGraphState>> {
-    const nextPrivateState = await runRegisteredAgent(
-      "industry-analyst",
-      state.shared,
-      state.privateState,
-      buildAgentContext(runtimeContext, state, "industry-analyst"),
-    );
-    return {
-      privateState: withNodeStatus(nextPrivateState, "industry_analyzed"),
-    };
-  }
-
-  async function companyAnalystNode(state: DailyRunGraphState): Promise<Partial<DailyRunGraphState>> {
-    const nextPrivateState = await runRegisteredAgent(
-      "company-analyst",
-      state.shared,
-      state.privateState,
-      buildAgentContext(runtimeContext, state, "company-analyst"),
-    );
-    return {
-      privateState: withNodeStatus(nextPrivateState, "company_analyzed"),
-    };
-  }
-
-  async function bearCaseAnalystNode(state: DailyRunGraphState): Promise<Partial<DailyRunGraphState>> {
-    const nextPrivateState = await runRegisteredAgent(
-      "bear-case-analyst",
-      state.shared,
-      state.privateState,
-      buildAgentContext(runtimeContext, state, "bear-case-analyst"),
-    );
-    return {
-      privateState: withNodeStatus(nextPrivateState, "bear_case_analyzed"),
-    };
-  }
-
-  async function portfolioManagerNode(state: DailyRunGraphState): Promise<Partial<DailyRunGraphState>> {
-    const nextPrivateState = await runRegisteredAgent(
-      "portfolio-manager",
-      state.shared,
-      state.privateState,
-      buildAgentContext(runtimeContext, state, "portfolio-manager"),
-    );
-    return {
-      privateState: withNodeStatus(nextPrivateState, "portfolio_built"),
-    };
-  }
-
-  async function riskOfficerNode(state: DailyRunGraphState): Promise<Partial<DailyRunGraphState>> {
-    const nextPrivateState = await runRegisteredAgent(
-      "risk-officer",
-      state.shared,
-      state.privateState,
-      buildAgentContext(runtimeContext, state, "risk-officer"),
-    );
-    return {
-      privateState: withNodeStatus(nextPrivateState, "risk_checked"),
+      privateState: withNodeStatus(nextPrivateState, nextStatus),
     };
   }
 
@@ -411,31 +433,29 @@ function createDailyRunGraph(repoRoot: string, runtimeContext?: WorkflowRuntimeC
       buildAgentContext(runtimeContext, state, "chief-investment-officer"),
     );
 
-    const riskGate = nextPrivateState.analysis.riskGate ?? { decision: "pass", alerts: [], notToDo: [] };
+    const riskGate = nextPrivateState.derived.riskGate ?? {
+      decision: "pass",
+      alerts: [],
+      notToDo: [],
+    };
+
     const draftResult = await persistDailyDraft(state.context.investmentRoot, {
-      workflowRunId: runtimeContext?.workflowRunId ?? "compat",
+      workflowRunId: runtimeContext.workflowRunId,
       runDate: state.context.runDate,
       portfolioId: DEFAULT_PORTFOLIO_ID,
-      marketAttitude: nextPrivateState.analysis.marketAttitude ?? "",
+      marketAttitude: nextPrivateState.derived.marketAttitude ?? "",
       riskGate,
-      positionUpdates: nextPrivateState.analysis.positionUpdates,
-      candidateAssessments: nextPrivateState.analysis.candidateAssessments,
-      requiredActions: nextPrivateState.analysis.requiredActions,
-      optionalActions: nextPrivateState.analysis.optionalActions,
-      continueHolding: nextPrivateState.analysis.continueHolding,
-      focusWatchlist: nextPrivateState.analysis.focusWatchlist,
+      sheetItems: nextPrivateState.derived.sheetItems,
       dailyOperationSheetBody: nextPrivateState.decision.dailyOperationSheet ?? "",
     });
 
     const nextState: DailyRunGraphState = {
       ...state,
-      shared: state.shared,
       privateState: {
         ...nextPrivateState,
         artifacts: {
           ...nextPrivateState.artifacts,
           outputMarkdownPath: draftResult.outputMarkdownPath,
-          outputJsonPath: undefined,
         },
       },
     };
@@ -479,18 +499,24 @@ function createDailyRunGraph(repoRoot: string, runtimeContext?: WorkflowRuntimeC
     if (!approvalDecision) {
       throw new Error("Missing approval decision for state writeback.");
     }
+
     const result = await applyApprovalWriteback(state.context.investmentRoot, {
-      workflowRunId: runtimeContext?.workflowRunId ?? "compat",
+      workflowRunId: runtimeContext.workflowRunId,
       runDate: state.context.runDate,
       decision: approvalDecision.decision,
       reviewer: approvalDecision.reviewer,
       notes: approvalDecision.notes,
       portfolioId: DEFAULT_PORTFOLIO_ID,
-      marketAttitude: state.privateState.analysis.marketAttitude ?? "",
-      riskGate: state.privateState.analysis.riskGate ?? { decision: "pass", alerts: [], notToDo: [] },
+      marketAttitude: state.privateState.derived.marketAttitude ?? "",
+      riskGate: state.privateState.derived.riskGate ?? {
+        decision: "pass",
+        alerts: [],
+        notToDo: [],
+      },
       dailyOperationSheetBody: state.privateState.decision.dailyOperationSheet ?? "",
-      requiredActions: state.privateState.analysis.requiredActions,
+      sheetItems: state.privateState.derived.sheetItems,
     });
+
     return {
       privateState: withNodeStatus(
         {
@@ -513,33 +539,26 @@ function createDailyRunGraph(repoRoot: string, runtimeContext?: WorkflowRuntimeC
   }
 
   const checkpointer = SqliteSaver.fromConnString(resolveLangGraphCheckpointPath(repoRoot));
-  const graph = new StateGraph(DailyRunGraphAnnotation)
+  const graphBuilder = new StateGraph(DailyRunGraphAnnotation)
     .addNode("start", startNode)
-    .addNode("information-collector", informationCollectorNode)
-    .addNode("macro-policy-analyst", macroPolicyAnalystNode)
-    .addNode("industry-analyst", industryAnalystNode)
-    .addNode("company-analyst", companyAnalystNode)
-    .addNode("bear-case-analyst", bearCaseAnalystNode)
-    .addNode("portfolio-manager", portfolioManagerNode)
-    .addNode("risk-officer", riskOfficerNode)
     .addNode("chief-investment-officer", chiefInvestmentOfficerNode)
     .addNode("human_approval", humanApprovalNode)
     .addNode("state_writeback", stateWritebackNode)
-    .addNode("end", endNode)
-    .addEdge(START, "start")
-    .addEdge("start", "information-collector")
-    .addEdge("information-collector", "macro-policy-analyst")
-    .addEdge("macro-policy-analyst", "industry-analyst")
-    .addEdge("industry-analyst", "company-analyst")
-    .addEdge("company-analyst", "bear-case-analyst")
-    .addEdge("bear-case-analyst", "portfolio-manager")
-    .addEdge("portfolio-manager", "risk-officer")
-    .addEdge("risk-officer", "chief-investment-officer")
-    .addEdge("chief-investment-officer", "human_approval")
-    .addEdge("human_approval", "state_writeback")
-    .addEdge("state_writeback", "end")
-    .addEdge("end", END)
-    .compile({ checkpointer });
+    .addNode("end", endNode);
+
+  for (const stage of DAILY_AGENT_STAGES) {
+    (graphBuilder as any).addNode(stage.agentId, (state: DailyRunGraphState) =>
+      createStandardAgentNode(state, stage.agentId, stage.status),
+    );
+  }
+
+  for (const [from, to] of DAILY_GRAPH_EDGES) {
+    const normalizedFrom = from === "__start__" ? START : from;
+    const normalizedTo = to === "__end__" ? END : to;
+    (graphBuilder as any).addEdge(normalizedFrom, normalizedTo);
+  }
+
+  const graph = graphBuilder.compile({ checkpointer });
   return { graph, checkpointer };
 }
 
@@ -560,7 +579,7 @@ export function buildDailyRunThreadId(runDate: string): string {
 
 export async function startDailyRunGraph(
   input: StartDailyRunInput,
-  runtimeContext?: WorkflowRuntimeContext,
+  runtimeContext: WorkflowRuntimeContext,
 ): Promise<DailyRunGraphResult> {
   const repoRoot = path.dirname(input.investmentRoot);
   const { graph, checkpointer } = createDailyRunGraph(repoRoot, runtimeContext);
@@ -573,6 +592,7 @@ export async function startDailyRunGraph(
       throw error;
     }
   }
+
   const result = (await graph.invoke(createInitialState(input), createGraphConfig(input.threadId))) as
     | (DailyRunGraphState & { __interrupt__?: Array<{ id: string; value: unknown }> })
     | undefined;
@@ -583,7 +603,7 @@ export async function startDailyRunGraph(
 
 export async function resumeDailyRunApproval(
   input: ResumeDailyRunInput,
-  runtimeContext?: WorkflowRuntimeContext,
+  runtimeContext: WorkflowRuntimeContext,
 ): Promise<DailyRunGraphResult> {
   const repoRoot = path.dirname(input.investmentRoot);
   const { graph } = createDailyRunGraph(repoRoot, runtimeContext);

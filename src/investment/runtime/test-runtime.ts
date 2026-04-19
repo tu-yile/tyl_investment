@@ -27,31 +27,55 @@ async function copyDirIfPresent(sourcePath: string, targetPath: string): Promise
 function rewriteCopiedDatabasePaths(dbPath: string): void {
   const db = new DatabaseSync(dbPath);
   try {
-    db.exec(`
-      UPDATE industries
-      SET knowledge_md_path = REPLACE(knowledge_md_path, 'investment/knowledge/', 'investment/runtime/test/knowledge/')
-      WHERE knowledge_md_path LIKE 'investment/knowledge/%';
-    `);
-    db.exec(`
-      UPDATE industry_knowledge_versions
-      SET source_md_path = REPLACE(source_md_path, 'investment/knowledge/', 'investment/runtime/test/knowledge/')
-      WHERE source_md_path LIKE 'investment/knowledge/%';
-    `);
-    db.exec(`
-      UPDATE theses
-      SET source_md_path = REPLACE(source_md_path, 'investment/knowledge/', 'investment/runtime/test/knowledge/')
-      WHERE source_md_path LIKE 'investment/knowledge/%';
-    `);
-    db.exec(`
-      UPDATE operation_sheets
-      SET markdown_path = REPLACE(markdown_path, 'investment/output/', 'investment/runtime/test/output/')
-      WHERE markdown_path LIKE 'investment/output/%';
-    `);
+    const tables = new Set(
+      (
+        db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+          .all() as Array<{ name: string }>
+      ).map((row) => row.name),
+    );
+
+    if (tables.has("industries")) {
+      db.exec(`
+        UPDATE industries
+        SET knowledge_md_path = REPLACE(knowledge_md_path, 'investment/knowledge/', 'investment/runtime/test/knowledge/')
+        WHERE knowledge_md_path LIKE 'investment/knowledge/%';
+      `);
+    }
+    if (tables.has("industry_knowledge_versions")) {
+      db.exec(`
+        UPDATE industry_knowledge_versions
+        SET source_md_path = REPLACE(source_md_path, 'investment/knowledge/', 'investment/runtime/test/knowledge/')
+        WHERE source_md_path LIKE 'investment/knowledge/%';
+      `);
+    }
+    if (tables.has("theses")) {
+      db.exec(`
+        UPDATE theses
+        SET source_md_path = REPLACE(source_md_path, 'investment/knowledge/', 'investment/runtime/test/knowledge/')
+        WHERE source_md_path LIKE 'investment/knowledge/%';
+      `);
+    }
+    if (tables.has("operation_sheets")) {
+      db.exec(`
+        UPDATE operation_sheets
+        SET markdown_path = REPLACE(markdown_path, 'investment/output/', 'investment/runtime/test/output/')
+        WHERE markdown_path LIKE 'investment/output/%';
+      `);
+    }
+    if (tables.has("agent_artifacts")) {
+      db.exec(`
+        UPDATE agent_artifacts
+        SET report_path = REPLACE(report_path, 'investment/output/', 'investment/runtime/test/output/')
+        WHERE report_path LIKE 'investment/output/%';
+      `);
+    }
   } finally {
     db.close();
   }
 }
 
+
+// 从正式环境copy一份数据到测试环境
 export async function initializeTestRuntime(repoRoot: string, reset = false): Promise<string> {
   const prodPaths = resolveInvestmentRuntimePathsForEnv(repoRoot, "prod");
   const testPaths = resolveInvestmentRuntimePathsForEnv(repoRoot, "test");

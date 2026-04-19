@@ -9,9 +9,9 @@ import type {
 export async function runAgentDefinition<
   TSharedState,
   TPrivateState,
-  TResult,
+  TSignals,
 >(
-  definition: AgentDefinition<TSharedState, TPrivateState, TResult>,
+  definition: AgentDefinition<TSharedState, TPrivateState, TSignals>,
   sharedState: TSharedState,
   privateState: TPrivateState,
   ctx: AgentExecutionContext,
@@ -27,7 +27,19 @@ export async function runAgentDefinition<
 
   try {
     const executionResult = await definition.execute(selectedInput, ctx);
-    const nextPrivateState = definition.applyResult(executionResult.parsedResult, privateState);
+    const artifact = executionResult.artifact;
+    await ctx.onAgentArtifact?.({
+      agentRunId: typeof agentRunId === "string" ? agentRunId : undefined,
+      workflowRunId: ctx.workflowRunId,
+      agentId: definition.id,
+      artifactType: artifact.artifactType ?? "report",
+      scopeType: artifact.scopeType ?? "workflow",
+      scopeKey: artifact.scopeKey ?? ctx.workflowId,
+      reportMd: artifact.reportMd,
+      signalsJson: artifact.signals,
+      summaryJson: artifact.summaryJson,
+    });
+    const nextPrivateState = definition.applyArtifact(artifact, privateState);
     await ctx.onAgentRunFinish?.({
       agentRunId: typeof agentRunId === "string" ? agentRunId : undefined,
       workflowRunId: ctx.workflowRunId,
@@ -57,6 +69,7 @@ export function createAgentExecutionContext(args: {
   threadId: string;
   onAgentRunStart?: AgentExecutionContext["onAgentRunStart"];
   onAgentRunFinish?: AgentExecutionContext["onAgentRunFinish"];
+  onAgentArtifact?: AgentExecutionContext["onAgentArtifact"];
 }): AgentExecutionContext {
   return {
     ...args,

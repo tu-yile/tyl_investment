@@ -3,11 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { resolveInvestmentRuntimePaths } from "../runtime/paths.js";
-import type {
-  CandidateAssessment,
-  PositionUpdateCard,
-  RiskGateResult,
-} from "../types.js";
+import type { ArtifactScopeType, ArtifactType } from "../agents/types.js";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -305,6 +301,35 @@ export interface AgentRunCreate {
   inputSummaryJson?: unknown;
 }
 
+export interface AgentArtifactCreate {
+  artifactId?: string;
+  agentRunId: string;
+  workflowRunId: string;
+  agentId: string;
+  artifactType: ArtifactType;
+  scopeType?: ArtifactScopeType | null;
+  scopeKey?: string | null;
+  reportPath: string;
+  reportSha256?: string | null;
+  signalsJson?: unknown;
+  summaryJson?: unknown;
+}
+
+export interface AgentArtifactRow {
+  artifactId: string;
+  agentRunId: string;
+  workflowRunId: string;
+  agentId: string;
+  artifactType: ArtifactType;
+  scopeType: ArtifactScopeType | null;
+  scopeKey: string | null;
+  reportPath: string;
+  reportSha256: string | null;
+  signalsJson: unknown;
+  summaryJson: unknown;
+  createdAt: string;
+}
+
 export interface OperationSheetItemInsert {
   itemBucket: string;
   ticker?: string | null;
@@ -325,7 +350,6 @@ export interface OperationSheetCreate {
   riskGateDecision?: string | null;
   bodyMd?: string | null;
   markdownPath?: string | null;
-  jsonPath?: string | null;
   reviewer?: string | null;
   reviewedAt?: string | null;
   items: OperationSheetItemInsert[];
@@ -341,7 +365,6 @@ export interface OperationSheetRow {
   riskGateDecision: string | null;
   bodyMd: string | null;
   markdownPath: string | null;
-  jsonPath: string | null;
   createdAt: string;
   reviewedAt: string | null;
   reviewer: string | null;
@@ -518,21 +541,30 @@ export class InvestmentStore {
   initializeSchema(): void {
     const schemaSql = fs.readFileSync(this.schemaPath, "utf8");
     this.db.exec(schemaSql);
-    this.ensureSchemaCompatibility();
+    this.pruneLegacySchema();
   }
 
-  private ensureSchemaCompatibility(): void {
-    this.ensureColumn("theses", "monitoring_flags_json", "TEXT");
-    this.ensureColumn("industry_knowledge_versions", "key_signals_json", "TEXT");
-    this.ensureColumn("industry_knowledge_versions", "watchpoints_json", "TEXT");
-    this.ensureColumn("operation_sheets", "body_md", "TEXT");
+  private pruneLegacySchema(): void {
+    this.dropTableIfExists("position_update_cards");
+    this.dropTableIfExists("candidate_assessments");
+    this.dropTableIfExists("risk_gate_results");
+    this.dropColumnIfExists("operation_sheets", "json_path");
   }
 
-  private ensureColumn(tableName: string, columnName: string, definition: string): void {
+  private dropTableIfExists(tableName: string): void {
+    const row = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(tableName) as { name?: string } | undefined;
+    if (row?.name) {
+      this.db.exec(`DROP TABLE IF EXISTS ${tableName}`);
+    }
+  }
+
+  private dropColumnIfExists(tableName: string, columnName: string): void {
     const columns = this.db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<Record<string, unknown>>;
     const hasColumn = columns.some((column) => String(column.name) === columnName);
-    if (!hasColumn) {
-      this.db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+    if (hasColumn) {
+      this.db.exec(`ALTER TABLE ${tableName} DROP COLUMN ${columnName}`);
     }
   }
 
@@ -1473,103 +1505,72 @@ export class InvestmentStore {
       );
   }
 
-  replacePositionUpdateCards(workflowRunId: string, cards: PositionUpdateCard[]): void {
-    this.transaction(() => {
-      this.db
-        .prepare("DELETE FROM position_update_cards WHERE workflow_run_id = ?")
-        .run(workflowRunId);
-
-      const stmt = this.db.prepare(`
-        INSERT INTO position_update_cards (
-          workflow_run_id, ticker, thesis_status, today_view, suggested_weight_change,
-          confidence, why_now, risk_flags_json, action, priority, score, created_at
+  createAgentArtifact(record: AgentArtifactCreate): AgentArtifactRow {
+    const artifactId = record.artifactId ?? randomUUID();
+    const createdAt = nowIso();
+    this.db
+      .prepare(`
+        INSERT INTO agent_artifacts (
+          artifact_id, agent_run_id, workflow_run_id, agent_id, artifact_type,
+          scope_type, scope_key, report_path, report_sha256, signals_json, summary_json, created_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      for (const card of cards) {
-        stmt.run(
-          workflowRunId,
-          card.ticker,
-          card.thesisStatus,
-          card.todayView,
-          card.suggestedWeightChange,
-          card.confidence,
-          card.whyNow,
-          stringifyJson(card.riskFlags),
-          card.action,
-          card.priority,
-          card.score,
-          nowIso(),
-        );
-      }
-    });
-  }
-
-  replaceCandidateAssessments(workflowRunId: string, items: CandidateAssessment[]): void {
-    this.transaction(() => {
-      this.db
-        .prepare("DELETE FROM candidate_assessments WHERE workflow_run_id = ?")
-        .run(workflowRunId);
-
-      const stmt = this.db.prepare(`
-        INSERT INTO candidate_assessments (
-          workflow_run_id, ticker, score, confidence, action, why_now, created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      for (const item of items) {
-        stmt.run(
-          workflowRunId,
-          item.ticker,
-          item.score,
-          item.confidence,
-          item.action,
-          item.whyNow,
-          nowIso(),
-        );
-      }
-    });
-  }
-
-  upsertRiskGateResult(workflowRunId: string, result: RiskGateResult): number {
-    const existing = this.db
-      .prepare("SELECT risk_gate_result_id FROM risk_gate_results WHERE workflow_run_id = ?")
-      .get(workflowRunId) as { risk_gate_result_id: number } | undefined;
-
-    if (existing) {
-      this.db
-        .prepare(`
-          UPDATE risk_gate_results
-          SET decision = ?, alerts_json = ?, not_to_do_json = ?, created_at = ?
-          WHERE risk_gate_result_id = ?
-        `)
-        .run(
-          result.decision,
-          stringifyJson(result.alerts),
-          stringifyJson(result.notToDo),
-          nowIso(),
-          existing.risk_gate_result_id,
-        );
-      return existing.risk_gate_result_id;
-    }
-
-    const insertResult = this.db
-      .prepare(`
-        INSERT INTO risk_gate_results (
-          workflow_run_id, decision, alerts_json, not_to_do_json, created_at
-        )
-        VALUES (?, ?, ?, ?, ?)
       `)
       .run(
-        workflowRunId,
-        result.decision,
-        stringifyJson(result.alerts),
-        stringifyJson(result.notToDo),
-        nowIso(),
+        artifactId,
+        record.agentRunId,
+        record.workflowRunId,
+        record.agentId,
+        record.artifactType,
+        record.scopeType ?? null,
+        record.scopeKey ?? null,
+        record.reportPath,
+        record.reportSha256 ?? null,
+        stringifyJson(record.signalsJson),
+        stringifyJson(record.summaryJson),
+        createdAt,
       );
-    return Number(insertResult.lastInsertRowid);
+    return {
+      artifactId,
+      agentRunId: record.agentRunId,
+      workflowRunId: record.workflowRunId,
+      agentId: record.agentId,
+      artifactType: record.artifactType,
+      scopeType: record.scopeType ?? null,
+      scopeKey: record.scopeKey ?? null,
+      reportPath: record.reportPath,
+      reportSha256: record.reportSha256 ?? null,
+      signalsJson: record.signalsJson,
+      summaryJson: record.summaryJson,
+      createdAt,
+    };
+  }
+
+  listAgentArtifactsByWorkflowRun(workflowRunId: string): AgentArtifactRow[] {
+    const rows = this.db
+      .prepare(`
+        SELECT
+          artifact_id, agent_run_id, workflow_run_id, agent_id, artifact_type,
+          scope_type, scope_key, report_path, report_sha256, signals_json, summary_json, created_at
+        FROM agent_artifacts
+        WHERE workflow_run_id = ?
+        ORDER BY created_at ASC, artifact_id ASC
+      `)
+      .all(workflowRunId) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      artifactId: String(row.artifact_id),
+      agentRunId: String(row.agent_run_id),
+      workflowRunId: String(row.workflow_run_id),
+      agentId: String(row.agent_id),
+      artifactType: String(row.artifact_type) as ArtifactType,
+      scopeType: row.scope_type === null ? null : (String(row.scope_type) as ArtifactScopeType),
+      scopeKey: row.scope_key === null ? null : String(row.scope_key),
+      reportPath: String(row.report_path),
+      reportSha256: row.report_sha256 === null ? null : String(row.report_sha256),
+      signalsJson: parseJson(row.signals_json as string | null),
+      summaryJson: parseJson(row.summary_json as string | null),
+      createdAt: String(row.created_at),
+    }));
   }
 
   createOperationSheet(record: OperationSheetCreate): number {
@@ -1578,9 +1579,9 @@ export class InvestmentStore {
         .prepare(`
         INSERT INTO operation_sheets (
           workflow_run_id, run_date, portfolio_id, status, market_attitude, risk_gate_decision,
-          body_md, markdown_path, json_path, created_at, reviewed_at, reviewer
+          body_md, markdown_path, created_at, reviewed_at, reviewer
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         record.workflowRunId,
@@ -1591,7 +1592,6 @@ export class InvestmentStore {
         record.riskGateDecision ?? null,
         record.bodyMd ?? null,
         record.markdownPath ?? null,
-        record.jsonPath ?? null,
         nowIso(),
         record.reviewedAt ?? null,
         record.reviewer ?? null,
@@ -1630,7 +1630,7 @@ export class InvestmentStore {
       .prepare(`
         SELECT
           operation_sheet_id, workflow_run_id, run_date, portfolio_id, status,
-          market_attitude, risk_gate_decision, body_md, markdown_path, json_path,
+          market_attitude, risk_gate_decision, body_md, markdown_path,
           created_at, reviewed_at, reviewer
         FROM operation_sheets
         WHERE operation_sheet_id = ?
@@ -1649,7 +1649,6 @@ export class InvestmentStore {
       riskGateDecision: row.risk_gate_decision === null ? null : String(row.risk_gate_decision),
       bodyMd: row.body_md === null ? null : String(row.body_md),
       markdownPath: row.markdown_path === null ? null : String(row.markdown_path),
-      jsonPath: row.json_path === null ? null : String(row.json_path),
       createdAt: String(row.created_at),
       reviewedAt: row.reviewed_at === null ? null : String(row.reviewed_at),
       reviewer: row.reviewer === null ? null : String(row.reviewer),
@@ -1661,7 +1660,7 @@ export class InvestmentStore {
       .prepare(`
         SELECT
           operation_sheet_id, workflow_run_id, run_date, portfolio_id, status,
-          market_attitude, risk_gate_decision, body_md, markdown_path, json_path,
+          market_attitude, risk_gate_decision, body_md, markdown_path,
           created_at, reviewed_at, reviewer
         FROM operation_sheets
         WHERE workflow_run_id = ?
@@ -1680,7 +1679,6 @@ export class InvestmentStore {
       riskGateDecision: row.risk_gate_decision === null ? null : String(row.risk_gate_decision),
       bodyMd: row.body_md === null ? null : String(row.body_md),
       markdownPath: row.markdown_path === null ? null : String(row.markdown_path),
-      jsonPath: row.json_path === null ? null : String(row.json_path),
       createdAt: String(row.created_at),
       reviewedAt: row.reviewed_at === null ? null : String(row.reviewed_at),
       reviewer: row.reviewer === null ? null : String(row.reviewer),

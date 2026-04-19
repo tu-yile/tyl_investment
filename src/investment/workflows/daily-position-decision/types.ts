@@ -1,10 +1,9 @@
+import type { AgentId } from "../../agents/types.js";
 import type {
-  CandidateAssessment,
   CandidateRecord,
   IndustryRecord,
   MarketContext,
   PositionRecord,
-  PositionUpdateCard,
   RiskGateResult,
   RulesConfig,
   ThesisRecord,
@@ -14,9 +13,11 @@ export type CollectionScopeType = "market" | "positions" | "candidates";
 export type SourceType = "news" | "announcements";
 export type EventLevel = "market" | "industry" | "company";
 export type ImpactHint = "positive" | "negative" | "mixed" | "neutral";
+export type IndustryStance = "positive" | "neutral" | "negative";
+export type SecurityAction = "add" | "hold" | "reduce" | "exit" | "watch";
+export type PortfolioAction = "add" | "hold" | "reduce" | "exit" | "watch" | "swap";
+export type SheetBucket = "required" | "optional" | "hold" | "watch";
 
-// 这些状态只服务于 daily-position-decision 内部图节点推进，
-// 不对 workflow 平台层暴露，避免后续其他流程被迫继承这套中间状态。
 export type DailyRunNodeStatus =
   | "initialized"
   | "information_collected"
@@ -55,76 +56,50 @@ export interface SourceLogItem {
 }
 
 export interface InformationEvent {
-  eventId: string;
-  level: EventLevel;
+  subjectRef: string;
   publishedAt: string;
   source: string;
-  sourceType: SourceType;
   title: string;
   summary: string;
   url: string;
+  impact: ImpactHint;
+  eventId?: string;
+  level?: EventLevel;
+  sourceType?: SourceType;
   ticker?: string;
   industryId?: string;
-  marketTags: string[];
-  impactHint: ImpactHint;
-  confidence: number;
+  marketTags?: string[];
+  impactHint?: ImpactHint;
+  confidence?: number;
 }
 
-export interface IndustryView {
+export interface IndustryStanceUpdate {
   industryId: string;
-  name: string;
-  stance: "positive" | "neutral" | "negative";
-  summary: string;
-  keyChanges: string[];
-  riskFlags: string[];
-  affectedTickers: string[];
+  stance: IndustryStance;
 }
 
-export interface CompanyView {
+export interface SecurityUpdate {
   ticker: string;
-  name: string;
   thesisStatus: string;
-  summary: string;
-  whyNow: string;
-  supportingSignals: string[];
-  warningSignals: string[];
-  actionBias: "add" | "hold" | "reduce" | "exit" | "watch";
+  action: SecurityAction;
+  suggestedWeightChange: number;
   confidence: number;
 }
 
-export interface ThesisDelta {
-  thesisId: string;
+export interface PortfolioActionPlan {
   ticker: string;
-  previousStatus?: string;
-  nextStatus: string;
-  changeSummary: string;
-}
-
-export interface BearCaseView {
-  ticker: string;
-  coreChallenge: string;
-  errorConditions: string[];
-  disconfirmingSignals: string[];
-  severity: "medium" | "high" | "critical";
-}
-
-export interface ReplacementRankingItem {
-  ticker: string;
-  name: string;
-  action: "keep" | "watch_for_swap" | "swap_candidate";
-  score: number;
-  reason: string;
-}
-
-export interface PortfolioActionProposal {
-  ticker: string;
-  name: string;
-  action: "add" | "hold" | "reduce" | "exit" | "watch" | "swap";
+  action: PortfolioAction;
   weightChange: number;
-  rationale: string;
-  confidence: number;
   fundingSource?: string;
-  constraints: string[];
+  confidence: number;
+}
+
+export interface OperationSheetItem {
+  bucket: SheetBucket;
+  ref?: string;
+  action?: string;
+  weightChange?: number;
+  confidence?: number;
 }
 
 export interface ApprovalPacket {
@@ -153,8 +128,6 @@ export interface DailyRunGraphContext {
   startedAt: string;
 }
 
-// shared state 只承载跨业务 agent 复用的输入快照。
-// 它在 workflow 启动后基本保持只读，避免某个 agent 输出污染基础上下文。
 export interface DailySharedState {
   positions: PositionRecord[];
   candidates: CandidateRecord[];
@@ -177,33 +150,21 @@ export interface DailyRunCollected {
   sourceLog: SourceLogItem[];
 }
 
-export interface DailyRunAnalysis {
+export interface DailyRunDerivedState {
   marketAttitude?: string;
   macroRiskFlags: string[];
-  macroTransmissionView?: string;
-  industryViews: IndustryView[];
-  industryRiskFlags: string[];
-  companyViews: CompanyView[];
-  positionUpdates: PositionUpdateCard[];
-  thesisDeltas: ThesisDelta[];
-  bearCaseViews: BearCaseView[];
-  errorConditions: string[];
-  disconfirmingSignals: string[];
-  candidateAssessments: CandidateAssessment[];
-  replacementRanking: ReplacementRankingItem[];
-  capitalAllocationView?: string;
-  portfolioActionProposals: PortfolioActionProposal[];
+  industryStances: IndustryStanceUpdate[];
+  securityUpdates: SecurityUpdate[];
+  portfolioActions: PortfolioActionPlan[];
   riskGate?: RiskGateResult;
-  riskAlerts: string[];
-  riskLimits: string[];
-  requiredActions: PositionUpdateCard[];
-  optionalActions: Array<PositionUpdateCard | CandidateAssessment>;
-  continueHolding: PositionUpdateCard[];
-  focusWatchlist: string[];
+  sheetItems: OperationSheetItem[];
+}
+
+export interface DailyRunReports {
+  byAgent: Partial<Record<AgentId, string>>;
 }
 
 export interface DailyRunDecision {
-  finalActionFramework?: string;
   dailyOperationSheet?: string;
   approvalPacket?: ApprovalPacket;
   approvalDecision?: ApprovalDecision;
@@ -211,7 +172,6 @@ export interface DailyRunDecision {
 
 export interface DailyRunArtifacts {
   outputMarkdownPath?: string;
-  outputJsonPath?: string;
   actionLogPath?: string;
   portfolioMemoryPath?: string;
 }
@@ -221,11 +181,10 @@ export interface DailyRunRuntimeState {
   errors: string[];
 }
 
-// private state 只承载 daily workflow 自己的中间结果和最终产物，
-// 其他 workflow 不需要知道这些字段，更不应该被迫继承它们。
 export interface DailyPrivateState {
   collected: DailyRunCollected;
-  analysis: DailyRunAnalysis;
+  derived: DailyRunDerivedState;
+  reports: DailyRunReports;
   decision: DailyRunDecision;
   artifacts: DailyRunArtifacts;
   runtime: DailyRunRuntimeState;
@@ -242,7 +201,7 @@ export interface DailyRunGraphResult {
   threadId: string;
   runDate: string;
   outputMarkdownPath?: string;
-  outputJsonPath?: string;
+  actionLogPath?: string;
   approvalDecision?: ApprovalDecision;
   portfolioMemoryPath?: string;
   interrupts?: Array<{ id: string; value: unknown }>;

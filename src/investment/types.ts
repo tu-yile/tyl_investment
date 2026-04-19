@@ -85,49 +85,9 @@ export interface RulesConfig {
   replacementScoreGap: number;
 }
 
-// PositionUpdateCard 是单票重评后的标准中间产物，也是后续人工复核的重要对象。
-export interface PositionUpdateCard {
-  ticker: string;
-  name: string;
-  thesisStatus: string;
-  todayView: string;
-  suggestedWeightChange: number;
-  confidence: number;
-  whyNow: string;
-  riskFlags: string[];
-  action: string;
-  priority: string;
-  score: number;
-}
-
-// CandidateAssessment 用于候选池替代评估，和 PositionUpdateCard 一起进入组合排序。
-export interface CandidateAssessment {
-  ticker: string;
-  name: string;
-  score: number;
-  confidence: number;
-  action: string;
-  whyNow: string;
-}
-
 // RiskGateResult 是组合级风险闸门的唯一输出，明确给出放行、限行或否决。
 export interface RiskGateResult {
   decision: "pass" | "pass_with_limit" | "reject";
   alerts: string[];
   notToDo: string[];
-}
-
-// DailyRunResult 汇总每日工作流的关键输出，既写 Markdown，也落 JSON 快照。
-export interface DailyRunResult {
-  runDate: string;
-  marketAttitude: string;
-  positionUpdates: PositionUpdateCard[];
-  candidateAssessments: CandidateAssessment[];
-  requiredActions: PositionUpdateCard[];
-  optionalActions: Array<PositionUpdateCard | CandidateAssessment>;
-  continueHolding: PositionUpdateCard[];
-  focusWatchlist: string[];
-  riskGate: RiskGateResult;
-  outputMarkdownPath: string;
-  outputJsonPath: string;
 }

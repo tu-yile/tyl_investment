@@ -2,6 +2,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { resolveInvestmentRuntimePathsFromRoot } from "./runtime/paths.js";
 import type { WorkflowExecutionResult, WorkflowId, WorkflowTriggerType } from "./workflows/types.js";
+import { todayInShanghai } from "./lib/filesystem.js";
+import { startLarkGatewaySubsystem } from "../lark/bootstrap.js";
+import { startWorkflow, listWorkflows, resumeWorkflow } from "./workflows/registry.js"
 
 const WORKFLOW_IDS: WorkflowId[] = [
   "daily-position-decision",
@@ -56,9 +59,6 @@ function printWorkflowResult(result: WorkflowExecutionResult): void {
   console.log(`run date: ${result.runDate}`);
   if (result.artifacts.outputMarkdownPath) {
     console.log(`output markdown: ${result.artifacts.outputMarkdownPath}`);
-  }
-  if (result.artifacts.outputJsonPath) {
-    console.log(`output json: ${result.artifacts.outputJsonPath}`);
   }
   if (result.artifacts.actionLogPath) {
     console.log(`action log: ${result.artifacts.actionLogPath}`);
@@ -128,7 +128,6 @@ export async function runInvestmentCli(argv: string[]): Promise<void> {
       return;
     }
     case "workflow:list": {
-      const { listWorkflows } = await import("./workflows/registry.js");
       const workflows = await listWorkflows();
       for (const workflow of workflows) {
         const resumeTag = workflow.supportsResume ? "resume" : "start-only";
@@ -139,8 +138,6 @@ export async function runInvestmentCli(argv: string[]): Promise<void> {
       return;
     }
     case "workflow:run": {
-      const { todayInShanghai } = await import("./lib/filesystem.js");
-      const { startWorkflow } = await import("./workflows/registry.js");
       const workflowId = parseWorkflowId(options);
       const runDate = parseOption(options, "date") ?? todayInShanghai();
       const threadId = parseOption(options, "thread-id");
@@ -156,7 +153,6 @@ export async function runInvestmentCli(argv: string[]): Promise<void> {
       return;
     }
     case "workflow:resume": {
-      const { resumeWorkflow } = await import("./workflows/registry.js");
       const workflowId = parseWorkflowId(options);
       const threadId = parseOption(options, "thread-id");
       if (!threadId) {
@@ -207,7 +203,7 @@ export async function runInvestmentCli(argv: string[]): Promise<void> {
       return;
     }
     case "gateway": {
-      const { startLarkGatewaySubsystem } = await import("../lark/bootstrap.js");
+      
       await startLarkGatewaySubsystem();
       return;
     }

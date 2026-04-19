@@ -1,6 +1,9 @@
 import path from "node:path";
+import { createHash, randomUUID } from "node:crypto";
 import type { AgentId } from "../agents/types.js";
 import { validateRegisteredAgents } from "../agents/registry.js";
+import { writeText } from "../lib/filesystem.js";
+import { resolveAgentArtifactOutputPath } from "../runtime/paths.js";
 import { dailyPositionDecisionWorkflow } from "./daily-position-decision/index.js";
 import type {
   ResumeWorkflowRequest,
@@ -20,6 +23,21 @@ const workflowRegistry = new Map<WorkflowId, WorkflowDefinition<any, any, any>>(
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function sanitizeArtifactSegment(value: string | undefined, fallback: string): string {
+  const normalized = (value ?? "").trim().replace(/[^a-zA-Z0-9:_-]+/g, "-").replace(/-+/g, "-");
+  return normalized.length > 0 ? normalized : fallback;
+}
+
+function buildArtifactFilename(args: {
+  scopeType?: string;
+  scopeKey?: string;
+  artifactId: string;
+}): string {
+  const scopeType = sanitizeArtifactSegment(args.scopeType, "workflow");
+  const scopeKey = sanitizeArtifactSegment(args.scopeKey, "artifact");
+  return `${scopeType}-${scopeKey}-${args.artifactId}.md`;
 }
 
 function createPlannedWorkflowDefinition(args: {
@@ -164,11 +182,13 @@ function createRuntimeContext(args: {
   workflowMetadata: WorkflowMetadata;
   onAgentRunStart?: WorkflowRuntimeContext["onAgentRunStart"];
   onAgentRunFinish?: WorkflowRuntimeContext["onAgentRunFinish"];
+  onAgentArtifact?: WorkflowRuntimeContext["onAgentArtifact"];
 }): WorkflowRuntimeContext {
   return {
     ...args,
     onAgentRunStart: args.onAgentRunStart ?? (async () => undefined),
     onAgentRunFinish: args.onAgentRunFinish ?? (async () => undefined),
+    onAgentArtifact: args.onAgentArtifact ?? (async () => undefined),
   };
 }
 
@@ -295,6 +315,39 @@ export async function startWorkflow<TStartInput extends WorkflowStartInput>(
         errorMessage: args.errorMessage ?? null,
       });
     };
+    const onAgentArtifact: WorkflowRuntimeContext["onAgentArtifact"] = async (args) => {
+      if (!args.agentRunId) {
+        return;
+      }
+      const artifactId = randomUUID();
+      const reportSha256 = createHash("sha256").update(args.reportMd).digest("hex");
+      const reportPath = resolveAgentArtifactOutputPath(
+        request.investmentRoot,
+        request.workflowId,
+        request.runDate,
+        threadId,
+        args.agentId,
+        buildArtifactFilename({
+          scopeType: args.scopeType,
+          scopeKey: args.scopeKey,
+          artifactId,
+        }),
+      );
+      await writeText(reportPath, args.reportMd.trim());
+      return store.createAgentArtifact({
+        artifactId,
+        agentRunId: args.agentRunId,
+        workflowRunId: args.workflowRunId,
+        agentId: args.agentId,
+        artifactType: args.artifactType,
+        scopeType: args.scopeType ?? "workflow",
+        scopeKey: args.scopeKey ?? request.workflowId,
+        reportPath,
+        reportSha256,
+        signalsJson: args.signalsJson,
+        summaryJson: args.summaryJson,
+      });
+    };
     const runtimeContext = createRuntimeContext({
       repoRoot,
       investmentRoot: request.investmentRoot,
@@ -307,6 +360,7 @@ export async function startWorkflow<TStartInput extends WorkflowStartInput>(
       workflowMetadata,
       onAgentRunStart,
       onAgentRunFinish,
+      onAgentArtifact,
     });
     const result = await definition.start(
       {
@@ -409,6 +463,39 @@ export async function resumeWorkflow<TResumeInput extends WorkflowResumeInput>(
         errorMessage: args.errorMessage ?? null,
       });
     };
+    const onAgentArtifact: WorkflowRuntimeContext["onAgentArtifact"] = async (args) => {
+      if (!args.agentRunId) {
+        return;
+      }
+      const artifactId = randomUUID();
+      const reportSha256 = createHash("sha256").update(args.reportMd).digest("hex");
+      const reportPath = resolveAgentArtifactOutputPath(
+        request.investmentRoot,
+        request.workflowId,
+        runDate,
+        request.threadId,
+        args.agentId,
+        buildArtifactFilename({
+          scopeType: args.scopeType,
+          scopeKey: args.scopeKey,
+          artifactId,
+        }),
+      );
+      await writeText(reportPath, args.reportMd.trim());
+      return store.createAgentArtifact({
+        artifactId,
+        agentRunId: args.agentRunId,
+        workflowRunId: args.workflowRunId,
+        agentId: args.agentId,
+        artifactType: args.artifactType,
+        scopeType: args.scopeType ?? "workflow",
+        scopeKey: args.scopeKey ?? request.workflowId,
+        reportPath,
+        reportSha256,
+        signalsJson: args.signalsJson,
+        summaryJson: args.summaryJson,
+      });
+    };
 
     const runtimeContext = createRuntimeContext({
       repoRoot,
@@ -422,6 +509,7 @@ export async function resumeWorkflow<TResumeInput extends WorkflowResumeInput>(
       workflowMetadata,
       onAgentRunStart,
       onAgentRunFinish,
+      onAgentArtifact,
     });
     const result = await definition.resume(
       {

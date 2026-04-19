@@ -75,8 +75,8 @@ export function buildAgentRuntimeHeader(agentId: string): string {
     "- You are executing inside the investment daily-run graph.",
     "- You must stay within read-only behavior. Do not attempt to modify files.",
     "- You may use search and network access when helpful.",
-    "- Your final answer must contain exactly two top-level sections: `## Analysis` and `## Handoff`.",
-    "- The `## Handoff` section must strictly follow the response contract provided in the user task.",
+    "- Your final answer must strictly follow the response contract provided in the user task.",
+    "- Do not invent extra top-level sections beyond that response contract.",
   ].join("\n");
 }
 

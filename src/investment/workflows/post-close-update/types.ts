@@ -12,7 +12,6 @@ export interface PostClosePrivateState {
   newObservationItems: string[];
   artifacts: {
     outputMarkdownPath?: string;
-    outputJsonPath?: string;
     portfolioMemoryPath?: string;
   };
   runtime: {

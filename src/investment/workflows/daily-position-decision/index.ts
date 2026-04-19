@@ -15,14 +15,14 @@ function toWorkflowExecutionResult(
     runDate: result.runDate,
     artifacts: {
       outputMarkdownPath: result.outputMarkdownPath,
-      outputJsonPath: result.outputJsonPath,
+      actionLogPath: result.actionLogPath,
       portfolioMemoryPath: result.portfolioMemoryPath,
     },
     interrupts: result.interrupts,
     approvalDecision: result.approvalDecision,
     summaryJson: {
       outputMarkdownPath: result.outputMarkdownPath,
-      outputJsonPath: result.outputJsonPath,
+      actionLogPath: result.actionLogPath,
       portfolioMemoryPath: result.portfolioMemoryPath,
     },
   };
@@ -34,7 +34,7 @@ export function buildDailyRunThreadId(runDate: string): string {
 
 export async function startDailyRunGraph(
   input: StartDailyRunInput,
-  ctx?: WorkflowRuntimeContext,
+  ctx: WorkflowRuntimeContext,
 ): Promise<DailyRunGraphResult> {
   const { startDailyRunGraph: run } = await import("./graph.js");
   return run(input, ctx);
@@ -42,7 +42,7 @@ export async function startDailyRunGraph(
 
 export async function resumeDailyRunApproval(
   input: ResumeDailyRunInput,
-  ctx?: WorkflowRuntimeContext,
+  ctx: WorkflowRuntimeContext,
 ): Promise<DailyRunGraphResult> {
   const { resumeDailyRunApproval: resume } = await import("./graph.js");
   return resume(input, ctx);

@@ -2,9 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { todayInShanghai, writeText } from "./filesystem.js";
 import { parseMarkdownDocument, stringifyMarkdownDocument } from "./frontmatter.js";
-import { loadTheses, overwriteMarkdown } from "./loaders.js";
-import { renderUpdateCard } from "./daily-workflow.js";
-import { renderOperationSheetFromBody } from "../llm/agent-executors.js";
+import { overwriteMarkdown } from "./loaders.js";
 import {
   resolveInvestmentOutputPath,
 } from "../runtime/paths.js";
@@ -16,7 +14,8 @@ import {
   loadRuntimeTheses,
 } from "../storage/runtime-state.js";
 import { type RuntimePositionRow, type ThesisUpsert, InvestmentStore } from "../storage/investment-store.js";
-import type { CandidateAssessment, Frontmatter, PositionUpdateCard, RiskGateResult, ThesisRecord } from "../types.js";
+import type { Frontmatter, RiskGateResult, ThesisRecord } from "../types.js";
+import type { OperationSheetItem } from "../workflows/daily-position-decision/types.js";
 
 function resolveRepoRoot(investmentRoot: string): string {
   return path.dirname(investmentRoot);
@@ -44,11 +43,39 @@ function positionSnapshotHoldingDays(runDate: string, openedAt: string | null): 
   return Math.max(0, Math.floor((runTs - openedTs) / 86_400_000));
 }
 
+function normalizeSheetItemRef(ref: string | undefined): { ticker?: string | null; reason?: string | null } {
+  if (!ref || ref.trim().length === 0) {
+    return {};
+  }
+
+  const trimmed = ref.trim();
+  const tickerMatch = trimmed.match(/^(?:position|candidate|ticker):(.+)$/);
+  if (tickerMatch) {
+    return {
+      ticker: tickerMatch[1],
+      reason: trimmed,
+    };
+  }
+
+  if (trimmed.startsWith("watch:")) {
+    return {
+      reason: trimmed.slice("watch:".length).trim(),
+    };
+  }
+
+  if (trimmed.startsWith("industry:")) {
+    return {
+      reason: trimmed.slice("industry:".length).trim(),
+    };
+  }
+
+  return {
+    reason: trimmed,
+  };
+}
+
 function buildOperationSheetItems(args: {
-  requiredActions: PositionUpdateCard[];
-  optionalActions: Array<PositionUpdateCard | CandidateAssessment>;
-  continueHolding: PositionUpdateCard[];
-  focusWatchlist: string[];
+  sheetItems: OperationSheetItem[];
 }) {
   const items: Array<{
     itemBucket: string;
@@ -61,60 +88,16 @@ function buildOperationSheetItems(args: {
     sortOrder?: number;
   }> = [];
 
-  args.requiredActions.forEach((item, index) => {
+  args.sheetItems.forEach((item, index) => {
+    const normalizedRef = normalizeSheetItemRef(item.ref);
     items.push({
-      itemBucket: "required",
-      ticker: item.ticker,
-      action: item.action,
-      weightChange: item.suggestedWeightChange,
+      itemBucket: item.bucket,
+      ticker: normalizedRef.ticker ?? null,
+      action: item.action ?? null,
+      weightChange: typeof item.weightChange === "number" ? item.weightChange : null,
       confidence: item.confidence,
-      reason: item.todayView,
-      cancelCondition: item.riskFlags.join("；"),
-      sortOrder: index,
-    });
-  });
-
-  args.optionalActions.forEach((item, index) => {
-    if ("todayView" in item) {
-      items.push({
-        itemBucket: "optional",
-        ticker: item.ticker,
-        action: item.action,
-        weightChange: item.suggestedWeightChange,
-        confidence: item.confidence,
-        reason: item.todayView,
-        cancelCondition: item.riskFlags.join("；"),
-        sortOrder: index,
-      });
-      return;
-    }
-    items.push({
-      itemBucket: "optional",
-      ticker: item.ticker,
-      action: item.action,
-      confidence: item.confidence,
-      reason: item.whyNow,
-      sortOrder: index,
-    });
-  });
-
-  args.continueHolding.forEach((item, index) => {
-    items.push({
-      itemBucket: "hold",
-      ticker: item.ticker,
-      action: item.action,
-      weightChange: 0,
-      confidence: item.confidence,
-      reason: item.todayView,
-      cancelCondition: item.riskFlags.join("；"),
-      sortOrder: index,
-    });
-  });
-
-  args.focusWatchlist.forEach((item, index) => {
-    items.push({
-      itemBucket: "watch",
-      reason: item,
+      reason: normalizedRef.reason ?? null,
+      cancelCondition: null,
       sortOrder: index,
     });
   });
@@ -209,6 +192,29 @@ function buildPortfolioSnapshotFromPositions(portfolioId: string, runDate: strin
   };
 }
 
+function formatActionWeightChange(weightChange: number | null | undefined): string {
+  if (typeof weightChange !== "number" || Number.isNaN(weightChange)) {
+    return "";
+  }
+  return `${weightChange > 0 ? "+" : ""}${weightChange}%`;
+}
+
+function buildThesisDecisionLine(args: {
+  label: string;
+  action: string | null;
+  weightChange: number | null;
+}): string {
+  const parts = [args.label];
+  if (args.action) {
+    parts.push(args.action);
+  }
+  const weightChange = formatActionWeightChange(args.weightChange);
+  if (weightChange) {
+    parts.push(weightChange);
+  }
+  return parts.join(" ").trim();
+}
+
 async function writeActionLog(args: {
   investmentRoot: string;
   runDate: string;
@@ -242,15 +248,6 @@ async function writeActionLog(args: {
     ),
   );
   return actionLogPath;
-}
-
-async function maybeLoadCollection<T>(loader: (root: string) => Promise<T>, root: string, relativePath: string): Promise<T | null> {
-  try {
-    await fs.access(path.join(root, relativePath));
-  } catch {
-    return null;
-  }
-  return loader(root);
 }
 
 export async function rebuildPortfolioMemory(
@@ -299,12 +296,7 @@ export interface PersistDailyDraftInput {
   portfolioId?: string;
   marketAttitude: string;
   riskGate: RiskGateResult;
-  positionUpdates: PositionUpdateCard[];
-  candidateAssessments: CandidateAssessment[];
-  requiredActions: PositionUpdateCard[];
-  optionalActions: Array<PositionUpdateCard | CandidateAssessment>;
-  continueHolding: PositionUpdateCard[];
-  focusWatchlist: string[];
+  sheetItems: OperationSheetItem[];
   dailyOperationSheetBody: string;
 }
 
@@ -318,12 +310,7 @@ export async function persistDailyDraft(
 ): Promise<PersistDailyDraftResult> {
   const portfolioId = input.portfolioId ?? DEFAULT_PORTFOLIO_ID;
   const dailyDir = resolveInvestmentOutputPath(investmentRoot, "daily", input.runDate);
-  const cardsDir = path.join(dailyDir, "position-update-cards");
   const outputMarkdownPath = path.join(dailyDir, `${input.runDate}-daily-operation-sheet.md`);
-
-  for (const update of input.positionUpdates) {
-    await writeText(path.join(cardsDir, `${update.ticker}.md`), renderUpdateCard(input.runDate, update));
-  }
 
   const markdown = renderOperationSheetMarkdown({
     runDate: input.runDate,
@@ -336,9 +323,6 @@ export async function persistDailyDraft(
 
   const store = createStore(investmentRoot);
   try {
-    store.replacePositionUpdateCards(input.workflowRunId, input.positionUpdates);
-    store.replaceCandidateAssessments(input.workflowRunId, input.candidateAssessments);
-    store.upsertRiskGateResult(input.workflowRunId, input.riskGate);
     store.createOperationSheet({
       workflowRunId: input.workflowRunId,
       runDate: input.runDate,
@@ -348,12 +332,8 @@ export async function persistDailyDraft(
       riskGateDecision: input.riskGate.decision,
       bodyMd: input.dailyOperationSheetBody,
       markdownPath: outputMarkdownPath,
-      jsonPath: null,
       items: buildOperationSheetItems({
-        requiredActions: input.requiredActions,
-        optionalActions: input.optionalActions,
-        continueHolding: input.continueHolding,
-        focusWatchlist: input.focusWatchlist,
+        sheetItems: input.sheetItems,
       }),
     });
   } finally {
@@ -373,7 +353,7 @@ export interface ApprovalWritebackInput {
   riskGate: RiskGateResult;
   dailyOperationSheetBody: string;
   portfolioId?: string;
-  requiredActions: Array<Pick<PositionUpdateCard, "ticker" | "name" | "suggestedWeightChange" | "action">>;
+  sheetItems: OperationSheetItem[];
 }
 
 export interface ApprovalWritebackResult {
@@ -427,20 +407,29 @@ export async function applyApprovalWriteback(
       }),
     );
 
-    const requiredItems = store
-      .listOperationSheetItems(operationSheet.operationSheetId)
-      .filter((item) => item.itemBucket === "required");
+    const operationItems = store.listOperationSheetItems(operationSheet.operationSheetId);
+    const requiredItems = operationItems.filter((item) => item.itemBucket === "required");
+    const watchItems = operationItems.filter((item) => item.itemBucket === "watch");
 
     if (input.decision === "approve") {
       const positions = store.listRuntimePositions(portfolioId);
       const positionMap = new Map(positions.map((item) => [item.ticker, item]));
+      const candidates = store.listRuntimeCandidates(portfolioId);
+      const candidateMap = new Map(candidates.map((item) => [item.ticker, item]));
       const theses = await loadRuntimeTheses(investmentRoot);
       const thesisMap = new Map(theses.map((item) => [item.ticker, item]));
 
-      for (const action of input.requiredActions) {
+      for (const action of requiredItems) {
+        if (!action.ticker) {
+          continue;
+        }
+
         const position = positionMap.get(action.ticker);
+        const candidate = candidateMap.get(action.ticker);
+        const weightDelta = action.weightChange ?? 0;
+
         if (position) {
-          const nextWeight = Math.max(0, Math.round((position.currentWeight + action.suggestedWeightChange) * 100) / 100);
+          const nextWeight = Math.max(0, Math.round((position.currentWeight + weightDelta) * 100) / 100);
           store.upsertPosition({
             portfolioId,
             ticker: position.ticker,
@@ -453,14 +442,32 @@ export async function applyApprovalWriteback(
             convictionBucket: position.convictionBucket,
             notesMd: position.notesMd,
           });
+        } else if (action.action === "add" && weightDelta > 0) {
+          store.upsertPosition({
+            portfolioId,
+            ticker: action.ticker,
+            status: "open",
+            currentWeight: Math.round(weightDelta * 100) / 100,
+            costBasis: null,
+            openedAt: reviewedAt,
+            closedAt: null,
+            thesisId: candidate?.thesisId ?? null,
+            convictionBucket: null,
+            notesMd: candidate?.notesMd ?? null,
+          });
         }
 
         const thesis = thesisMap.get(action.ticker);
         if (thesis) {
+          const actionLabel = candidate?.name ?? thesis.companyName ?? action.ticker;
           const nextMarkdown = await updateThesisMarkdown({
             thesis,
             runDate: input.runDate,
-            decisionLine: `${action.name} ${action.action} ${action.suggestedWeightChange}%`,
+            decisionLine: buildThesisDecisionLine({
+              label: actionLabel,
+              action: action.action,
+              weightChange: action.weightChange,
+            }),
           });
           const current = store.getThesis(thesis.thesisId);
           const thesisUpsert: ThesisUpsert = {
@@ -491,16 +498,30 @@ export async function applyApprovalWriteback(
           });
         }
       }
+
+      for (const watchItem of watchItems) {
+        const contentMd = watchItem.reason ?? watchItem.ticker ?? "";
+        if (!contentMd.trim()) {
+          continue;
+        }
+        store.createObservationItem({
+          entityType: watchItem.ticker ? "ticker" : "workflow",
+          entityId: watchItem.ticker ?? portfolioId,
+          category: "daily_watch",
+          contentMd,
+          priority: "medium",
+          sourceWorkflowRunId: input.workflowRunId,
+        });
+      }
     }
 
     for (const item of requiredItems) {
-      const approvedAction = input.requiredActions.find((action) => action.ticker === item.ticker);
       store.createExecutionResult({
         operationSheetItemId: item.operationSheetItemId,
         executionDecision: input.decision === "approve" ? "approved" : "rejected",
-        approvedWeightChange: approvedAction?.suggestedWeightChange ?? item.weightChange ?? null,
+        approvedWeightChange: item.weightChange ?? null,
         executedWeightChange: input.decision === "approve"
-          ? approvedAction?.suggestedWeightChange ?? item.weightChange ?? null
+          ? item.weightChange ?? null
           : 0,
         executor: input.reviewer,
         executedAt: reviewedAt,

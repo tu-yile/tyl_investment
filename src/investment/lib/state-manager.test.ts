@@ -181,40 +181,19 @@ test("persistDailyDraft and applyApprovalWriteback close the sqlite loop", async
       alerts: ["组合允许执行"],
       notToDo: ["不要追高"],
     },
-    positionUpdates: [
+    sheetItems: [
       {
-        ticker: "300750",
-        name: "宁德时代",
-        thesisStatus: "strengthened",
-        todayView: "建议减仓 1%",
-        suggestedWeightChange: -1,
-        confidence: 0.8,
-        whyNow: "锁定部分收益",
-        riskFlags: ["关注海外需求波动"],
+        bucket: "required",
+        ref: "position:300750",
         action: "reduce",
-        priority: "high",
-        score: 0.8,
+        weightChange: -1,
+        confidence: 0.8,
+      },
+      {
+        bucket: "watch",
+        ref: "watch:跟踪储能订单兑现",
       },
     ],
-    candidateAssessments: [],
-    requiredActions: [
-      {
-        ticker: "300750",
-        name: "宁德时代",
-        thesisStatus: "strengthened",
-        todayView: "建议减仓 1%",
-        suggestedWeightChange: -1,
-        confidence: 0.8,
-        whyNow: "锁定部分收益",
-        riskFlags: ["关注海外需求波动"],
-        action: "reduce",
-        priority: "high",
-        score: 0.8,
-      },
-    ],
-    optionalActions: [],
-    continueHolding: [],
-    focusWatchlist: ["跟踪储能订单兑现"],
     dailyOperationSheetBody: "## 必须动作\n- 宁德时代减仓 1%",
   });
 
@@ -231,12 +210,13 @@ test("persistDailyDraft and applyApprovalWriteback close the sqlite loop", async
       notToDo: ["不要追高"],
     },
     dailyOperationSheetBody: "## 必须动作\n- 宁德时代减仓 1%",
-    requiredActions: [
+    sheetItems: [
       {
-        ticker: "300750",
-        name: "宁德时代",
-        suggestedWeightChange: -1,
+        bucket: "required",
+        ref: "position:300750",
         action: "reduce",
+        weightChange: -1,
+        confidence: 0.8,
       },
     ],
   });
@@ -319,26 +299,15 @@ test("persistDailyDraft writes workflow output into the test runtime tree", asyn
         alerts: ["测试环境允许执行"],
         notToDo: [],
       },
-      positionUpdates: [
+      sheetItems: [
         {
-          ticker: "300750",
-          name: "宁德时代",
-          thesisStatus: "unchanged",
-          todayView: "测试环境生成草稿",
-          suggestedWeightChange: 0,
-          confidence: 0.75,
-          whyNow: "验证输出隔离路径",
-          riskFlags: [],
+          bucket: "hold",
+          ref: "position:300750",
           action: "hold",
-          priority: "medium",
-          score: 0.75,
+          weightChange: 0,
+          confidence: 0.75,
         },
       ],
-      candidateAssessments: [],
-      requiredActions: [],
-      optionalActions: [],
-      continueHolding: [],
-      focusWatchlist: [],
       dailyOperationSheetBody: "## 测试环境\n- 验证输出路径",
     });
 

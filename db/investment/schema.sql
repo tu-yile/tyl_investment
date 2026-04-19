@@ -237,61 +237,35 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 CREATE INDEX IF NOT EXISTS idx_agent_runs_workflow_run_id
   ON agent_runs (workflow_run_id);
 
--- 单票重评结果表。
-CREATE TABLE IF NOT EXISTS position_update_cards (
-  position_update_card_id INTEGER PRIMARY KEY AUTOINCREMENT,
+-- agent 产物索引表。
+-- Markdown 报告落文件，数据库只保存路径、哈希和最小结构化信号。
+CREATE TABLE IF NOT EXISTS agent_artifacts (
+  artifact_id TEXT PRIMARY KEY,
+  agent_run_id TEXT NOT NULL,
   workflow_run_id TEXT NOT NULL,
-  ticker TEXT NOT NULL,
-  thesis_status TEXT NOT NULL,
-  today_view TEXT NOT NULL,
-  suggested_weight_change REAL NOT NULL DEFAULT 0,
-  confidence REAL NOT NULL,
-  why_now TEXT,
-  risk_flags_json TEXT,
-  action TEXT NOT NULL,
-  priority TEXT,
-  score REAL,
+  agent_id TEXT NOT NULL,
+  artifact_type TEXT NOT NULL,
+  scope_type TEXT,
+  scope_key TEXT,
+  report_path TEXT NOT NULL,
+  report_sha256 TEXT,
+  signals_json TEXT,
+  summary_json TEXT,
   created_at TEXT NOT NULL,
-  FOREIGN KEY (workflow_run_id) REFERENCES workflow_runs(workflow_run_id),
-  FOREIGN KEY (ticker) REFERENCES instruments(ticker)
-);
-
-CREATE INDEX IF NOT EXISTS idx_position_update_cards_workflow_run_id
-  ON position_update_cards (workflow_run_id);
-
-CREATE INDEX IF NOT EXISTS idx_position_update_cards_ticker
-  ON position_update_cards (ticker);
-
--- 候选池替代评估结果表。
-CREATE TABLE IF NOT EXISTS candidate_assessments (
-  candidate_assessment_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  workflow_run_id TEXT NOT NULL,
-  ticker TEXT NOT NULL,
-  score REAL NOT NULL,
-  confidence REAL NOT NULL,
-  action TEXT NOT NULL,
-  why_now TEXT,
-  created_at TEXT NOT NULL,
-  FOREIGN KEY (workflow_run_id) REFERENCES workflow_runs(workflow_run_id),
-  FOREIGN KEY (ticker) REFERENCES instruments(ticker)
-);
-
-CREATE INDEX IF NOT EXISTS idx_candidate_assessments_workflow_run_id
-  ON candidate_assessments (workflow_run_id);
-
--- 风险闸门结果表。
-CREATE TABLE IF NOT EXISTS risk_gate_results (
-  risk_gate_result_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  workflow_run_id TEXT NOT NULL,
-  decision TEXT NOT NULL,
-  alerts_json TEXT,
-  not_to_do_json TEXT,
-  created_at TEXT NOT NULL,
+  FOREIGN KEY (agent_run_id) REFERENCES agent_runs(agent_run_id),
   FOREIGN KEY (workflow_run_id) REFERENCES workflow_runs(workflow_run_id)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_risk_gate_results_workflow_run_id
-  ON risk_gate_results (workflow_run_id);
+CREATE INDEX IF NOT EXISTS idx_agent_artifacts_workflow_run
+  ON agent_artifacts (workflow_run_id, agent_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_agent_artifacts_scope
+  ON agent_artifacts (scope_type, scope_key, created_at);
+
+-- 已废弃的中间表不再保留，初始化时直接清理，避免新旧口径并存。
+DROP TABLE IF EXISTS position_update_cards;
+DROP TABLE IF EXISTS candidate_assessments;
+DROP TABLE IF EXISTS risk_gate_results;
 
 -- 每日操作单主表。
 CREATE TABLE IF NOT EXISTS operation_sheets (
@@ -304,7 +278,6 @@ CREATE TABLE IF NOT EXISTS operation_sheets (
   risk_gate_decision TEXT,
   body_md TEXT,
   markdown_path TEXT,
-  json_path TEXT,
   created_at TEXT NOT NULL,
   reviewed_at TEXT,
   reviewer TEXT,

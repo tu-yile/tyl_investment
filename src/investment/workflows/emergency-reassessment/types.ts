@@ -12,7 +12,6 @@ export interface EmergencyPrivateState {
   riskAlerts: string[];
   artifacts: {
     outputMarkdownPath?: string;
-    outputJsonPath?: string;
   };
   runtime: {
     nodeStatus: "planned";

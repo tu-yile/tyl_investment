@@ -1,31 +1,10 @@
-import { runAgentDefinition } from "../agents/runtime.js";
+import { createHash } from "node:crypto";
+import { z } from "zod";
 import type {
   AgentDefinition,
-  AgentExecutionContext,
   AgentExecutionResult,
   AgentSelectedInput,
 } from "../agents/types.js";
-import { stringifyMarkdownDocument } from "../lib/frontmatter.js";
-import type {
-  CandidateAssessment,
-  IndustryRecord,
-  PositionUpdateCard,
-  RiskGateResult,
-  ThesisRecord,
-} from "../types.js";
-import type {
-  BearCaseView,
-  CollectionSubject,
-  DailyPrivateState,
-  DailyRunGraphState,
-  DailySharedState,
-  IndustryView,
-  InformationEvent,
-  PortfolioActionProposal,
-  ReplacementRankingItem,
-  SourceLogItem,
-  ThesisDelta,
-} from "../workflows/daily-position-decision/types.js";
 import {
   buildBearCaseContract,
   buildCioContract,
@@ -36,93 +15,210 @@ import {
   buildPortfolioContract,
   buildRiskContract,
 } from "./contracts.js";
+import { parseMarkdownSignalResponse } from "./markdown-signal-parser.js";
 import {
-  extractHandoff,
-  extractLinesAsBullets,
-  extractNamedSection,
-  extractRepeatedBlocks,
-  expectArray,
-  expectEnum,
-  expectString,
-  optionalArray,
-  parseConfidence,
-  parseFieldBlock,
-  parseNumber,
-  stableEventId,
-} from "./handoff-parser.js";
-import { industryDigest, nowIso, runAgent, stringifyPromptContext, thesisDigest } from "./prompting.js";
+  cioSignalsSchema,
+  collectorSignalsSchema,
+  companySignalsSchema,
+  industrySignalsSchema,
+  macroSignalsSchema,
+  portfolioSignalsSchema,
+  riskSignalsSchema,
+  type CioSignals,
+  type CollectorSignals,
+  type CompanySignals,
+  type IndustrySignals,
+  type MacroSignals,
+  type PortfolioSignals,
+  type RiskSignals,
+} from "./signal-schemas.js";
+import { industryDigest, runAgent, stringifyPromptContext, thesisDigest } from "./prompting.js";
+import type {
+  CollectionSubject,
+  DailyPrivateState,
+  DailySharedState,
+  InformationEvent,
+  OperationSheetItem,
+} from "../workflows/daily-position-decision/types.js";
 
 interface DailyAgentSelectedInput extends AgentSelectedInput {
   contextBlocks: string[];
+  subjects?: CollectionSubject[];
 }
 
-function createCompatAgentExecutionContext(
-  state: DailyRunGraphState,
-  agentId: AgentExecutionContext["agentId"],
-): AgentExecutionContext {
+interface CollectedEventSignals {
+  events: InformationEvent[];
+}
+
+const emptySignalsSchema = z.object({}).passthrough();
+
+function stableId(parts: Array<string | undefined>): string {
+  return createHash("sha1").update(parts.filter(Boolean).join("|")).digest("hex");
+}
+
+function markdownContext(title: string, markdown: string | undefined): string | null {
+  const value = markdown?.trim();
+  if (!value) {
+    return null;
+  }
+  return [`## ${title}`, value].join("\n");
+}
+
+function compactBlocks(blocks: Array<string | null | undefined>): string[] {
+  return blocks.filter((block): block is string => typeof block === "string" && block.trim().length > 0);
+}
+
+function withAgentReport(
+  privateState: DailyPrivateState,
+  agentId: keyof DailyPrivateState["reports"]["byAgent"],
+  reportMd: string,
+): DailyPrivateState {
   return {
-    agentId,
-    investmentRoot: state.context.investmentRoot,
-    workflowId: state.context.workflowId,
-    workflowRunId: "compat",
-    runDate: state.context.runDate,
-    threadId: state.context.threadId,
-    onAgentRunStart: async () => undefined,
-    onAgentRunFinish: async () => undefined,
+    ...privateState,
+    reports: {
+      ...privateState.reports,
+      byAgent: {
+        ...privateState.reports.byAgent,
+        [agentId]: reportMd.trim(),
+      },
+    },
   };
 }
 
-async function executeStructuredAgent<TResult>(
-  agentId: AgentExecutionContext["agentId"],
-  contract: string,
-  input: DailyAgentSelectedInput,
-  ctx: AgentExecutionContext,
-  parse: (finalText: string) => TResult,
-  buildOutputSummary?: (parsed: TResult) => unknown,
-): Promise<AgentExecutionResult<TResult>> {
+function subjectIndex(subjects: CollectionSubject[]): Map<string, CollectionSubject> {
+  return new Map(subjects.map((subject) => [subject.id, subject]));
+}
+
+function extractTickerFromRef(subjectRef: string): string | undefined {
+  const match = subjectRef.match(/^(?:ticker|position|candidate):(.+)$/);
+  return match?.[1];
+}
+
+function extractIndustryIdFromRef(subjectRef: string): string | undefined {
+  const match = subjectRef.match(/^industry:(.+)$/);
+  return match?.[1];
+}
+
+function inferEventLevel(subjectRef: string, subject?: CollectionSubject): InformationEvent["level"] {
+  if (subject?.level) {
+    return subject.level;
+  }
+  if (subjectRef.startsWith("industry:")) {
+    return "industry";
+  }
+  if (
+    subjectRef.startsWith("position:") ||
+    subjectRef.startsWith("candidate:") ||
+    subjectRef.startsWith("ticker:")
+  ) {
+    return "company";
+  }
+  return "market";
+}
+
+function inferSourceType(source: string, url: string): InformationEvent["sourceType"] {
+  const haystack = `${source} ${url}`.toLowerCase();
+  if (/(exchange|cninfo|公告|disclosure|bulletin|sse|szse)/i.test(haystack)) {
+    return "announcements";
+  }
+  return "news";
+}
+
+function enrichCollectorSignals(
+  signals: CollectorSignals,
+  subjects: CollectionSubject[],
+): InformationEvent[] {
+  const subjectsById = subjectIndex(subjects);
+  return signals.events.map((event) => {
+    const subject = subjectsById.get(event.subjectRef);
+    const level = inferEventLevel(event.subjectRef, subject);
+    return {
+      ...event,
+      eventId: stableId([event.subjectRef, event.source, event.url, event.title]),
+      level,
+      sourceType: inferSourceType(event.source, event.url),
+      ticker: subject?.ticker ?? extractTickerFromRef(event.subjectRef),
+      industryId: subject?.industryId ?? extractIndustryIdFromRef(event.subjectRef),
+      marketTags: level === "market" ? ["market"] : [],
+      impactHint: event.impact,
+      confidence: 0.72,
+    };
+  });
+}
+
+function eventLevel(event: InformationEvent): "market" | "industry" | "company" {
+  return event.level ?? inferEventLevel(event.subjectRef);
+}
+
+function filterEvents(events: InformationEvent[], level: "market" | "industry" | "company"): InformationEvent[] {
+  return events.filter((event) => eventLevel(event) === level);
+}
+
+function validateSignals<TSignals>(
+  agentId: string,
+  rawSignals: unknown,
+  schema: z.ZodType<TSignals>,
+): TSignals {
+  try {
+    return schema.parse(rawSignals ?? {});
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new Error(`${agentId} returned invalid signals: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
+async function executeMarkdownSignalAgent<TSignals>(args: {
+  agentId: AgentDefinition<any, any, any>["id"];
+  promptGuide: string;
+  input: DailyAgentSelectedInput;
+  ctx: {
+    investmentRoot: string;
+  };
+  schema: z.ZodType<TSignals>;
+  artifactType: "report" | "assessment" | "decision_packet" | "knowledge_proposal";
+  buildSummaryJson?: (signals: TSignals, reportMd: string) => unknown;
+}): Promise<AgentExecutionResult<TSignals>> {
   const finalText = await runAgent(
-    agentId,
-    ctx.investmentRoot,
-    contract,
-    input.contextBlocks,
+    args.agentId,
+    args.ctx.investmentRoot,
+    args.promptGuide,
+    args.input.contextBlocks,
   );
-  const parsedResult = parse(finalText);
+  const parsed = parseMarkdownSignalResponse(finalText);
+  const signals = validateSignals(args.agentId, parsed.signals, args.schema);
+  const summaryJson = args.buildSummaryJson?.(signals, parsed.reportMd.trim());
   return {
     rawOutput: finalText,
-    parsedResult,
-    outputSummaryJson: buildOutputSummary ? buildOutputSummary(parsedResult) : undefined,
+    artifact: {
+      reportMd: parsed.reportMd.trim(),
+      signals,
+      artifactType: args.artifactType,
+      scopeType: "workflow",
+      scopeKey: "daily-position-decision",
+      summaryJson,
+    },
+    outputSummaryJson: summaryJson,
   };
-}
-
-async function executeDefinitionForParsedResult<TResult>(
-  definition: AgentDefinition<DailySharedState, DailyPrivateState, TResult, DailyAgentSelectedInput>,
-  state: DailyRunGraphState,
-): Promise<TResult> {
-  const input = definition.selectInput(state.shared, state.privateState);
-  const result = await definition.execute(
-    input,
-    createCompatAgentExecutionContext(state, definition.id),
-  );
-  return result.parsedResult;
 }
 
 const informationCollectorDefinition: AgentDefinition<
   DailySharedState,
   DailyPrivateState,
-  {
-    informationEvents: InformationEvent[];
-    coverageSummary: string[];
-    sourceLog: SourceLogItem[];
-  },
+  CollectedEventSignals,
   DailyAgentSelectedInput
 > = {
   id: "information-collector",
   markdownPath: "agents/information-collector.md",
-  buildContract: buildInformationCollectorContract,
+  buildPromptGuide() {
+    return buildInformationCollectorContract();
+  },
   selectInput(sharedState): DailyAgentSelectedInput {
     return {
       scopeType: "workflow",
       scopeKey: "daily-position-decision",
+      subjects: sharedState.collectionScope.subjects,
       inputSummaryJson: {
         subjectCount: sharedState.collectionScope.subjects.length,
         sourceTypes: sharedState.collectionScope.sourceTypes,
@@ -133,7 +229,7 @@ const informationCollectorDefinition: AgentDefinition<
         stringifyPromptContext("Market Context", sharedState.marketContext),
         stringifyPromptContext(
           "Subjects",
-          sharedState.collectionScope.subjects.map((subject: CollectionSubject) => ({
+          sharedState.collectionScope.subjects.map((subject) => ({
             id: subject.id,
             label: subject.label,
             level: subject.level,
@@ -146,69 +242,43 @@ const informationCollectorDefinition: AgentDefinition<
     };
   },
   async execute(input, ctx) {
-    return executeStructuredAgent(
-      "information-collector",
-      this.buildContract(),
+    const result = await executeMarkdownSignalAgent({
+      agentId: this.id,
+      promptGuide: this.buildPromptGuide(),
       input,
       ctx,
-      (finalText) => {
-        const handoff = extractHandoff(finalText);
-        const eventBlocks = extractRepeatedBlocks(handoff, "Event");
-        const sourceLogBlocks = extractRepeatedBlocks(handoff, "Source Log");
-        const coverageBlock = extractNamedSection(handoff, "Coverage Summary");
-        const informationEvents = eventBlocks.map((block) => {
-          const fields = parseFieldBlock(block);
-          const level = expectEnum(expectString(fields, "level"), ["market", "industry", "company"], "level");
-          const sourceType = expectEnum(expectString(fields, "source_type"), ["news", "announcements"], "source_type");
-          const ticker = typeof fields.ticker === "string" ? fields.ticker.trim() : undefined;
-          const industryId = typeof fields.industry_id === "string" ? fields.industry_id.trim() : undefined;
-          const url = expectString(fields, "url");
-          const title = expectString(fields, "title");
-          return {
-            eventId: stableEventId([level, expectString(fields, "source"), url, title]),
-            level,
-            publishedAt: expectString(fields, "published_at"),
-            source: expectString(fields, "source"),
-            sourceType,
-            title,
-            summary: expectString(fields, "summary"),
-            url,
-            ticker,
-            industryId,
-            marketTags: optionalArray(fields, "market_tags"),
-            impactHint: expectEnum(expectString(fields, "impact_hint"), ["positive", "negative", "mixed", "neutral"], "impact_hint"),
-            confidence: parseConfidence(expectString(fields, "confidence"), "confidence"),
-          } satisfies InformationEvent;
-        });
-        const coverageSummary = coverageBlock ? extractLinesAsBullets(coverageBlock) : [];
-        const sourceLog = sourceLogBlocks.map((block) => {
-          const fields = parseFieldBlock(block);
-          return {
-            source: expectString(fields, "source"),
-            sourceType: expectEnum(expectString(fields, "source_type"), ["news", "announcements"], "source_type"),
-            query: expectString(fields, "query"),
-            fetchedAt: typeof fields.fetched_at === "string" && fields.fetched_at.trim() ? fields.fetched_at.trim() : nowIso(),
-            itemCount: parseNumber(expectString(fields, "item_count"), "item_count"),
-          } satisfies SourceLogItem;
-        });
-        if (informationEvents.length === 0) {
-          throw new Error("information-collector returned no events.");
-        }
-        return { informationEvents, coverageSummary, sourceLog };
-      },
-      (parsed) => ({
-        eventCount: parsed.informationEvents.length,
-        sourceLogCount: parsed.sourceLog.length,
-        coverageSummaryCount: parsed.coverageSummary.length,
+      schema: collectorSignalsSchema,
+      artifactType: "report",
+      buildSummaryJson: (signals) => ({
+        eventCount: signals.events.length,
       }),
+    });
+    const enrichedEvents = enrichCollectorSignals(
+      result.artifact.signals ?? { events: [] },
+      input.subjects ?? [],
     );
-  },
-  applyResult(result, privateState) {
     return {
-      ...privateState,
+      ...result,
+      artifact: {
+        ...result.artifact,
+        signals: {
+          events: enrichedEvents,
+        },
+      },
+      outputSummaryJson: {
+        eventCount: enrichedEvents.length,
+      },
+    };
+  },
+  applyArtifact(artifact, privateState) {
+    const nextPrivateState = withAgentReport(privateState, this.id, artifact.reportMd);
+    return {
+      ...nextPrivateState,
       collected: {
-        ...privateState.collected,
-        ...result,
+        ...nextPrivateState.collected,
+        informationEvents: artifact.signals?.events ?? [],
+        coverageSummary: [],
+        sourceLog: [],
       },
     };
   },
@@ -217,62 +287,50 @@ const informationCollectorDefinition: AgentDefinition<
 const macroPolicyDefinition: AgentDefinition<
   DailySharedState,
   DailyPrivateState,
-  {
-    marketAttitude: string;
-    macroRiskFlags: string[];
-    macroTransmissionView: string;
-  },
+  MacroSignals,
   DailyAgentSelectedInput
 > = {
   id: "macro-policy-analyst",
   markdownPath: "agents/macro-policy-analyst.md",
-  buildContract: buildMacroContract,
+  buildPromptGuide() {
+    return buildMacroContract();
+  },
   selectInput(sharedState, privateState) {
     return {
       scopeType: "workflow",
       scopeKey: "daily-position-decision",
       inputSummaryJson: {
-        marketEventCount: privateState.collected.informationEvents.filter((event) => event.level === "market").length,
-        coverageSummaryCount: privateState.collected.coverageSummary.length,
+        marketEventCount: filterEvents(privateState.collected.informationEvents, "market").length,
       },
-      contextBlocks: [
+      contextBlocks: compactBlocks([
         stringifyPromptContext("Market Context", sharedState.marketContext),
-        stringifyPromptContext(
-          "Market Events",
-          privateState.collected.informationEvents.filter((event) => event.level === "market"),
-        ),
-        stringifyPromptContext("Coverage Summary", privateState.collected.coverageSummary),
-      ],
+        stringifyPromptContext("Collected Market Events", filterEvents(privateState.collected.informationEvents, "market")),
+        markdownContext("Collector Report", privateState.reports.byAgent["information-collector"]),
+      ]),
     };
   },
   async execute(input, ctx) {
-    return executeStructuredAgent(
-      "macro-policy-analyst",
-      this.buildContract(),
+    return executeMarkdownSignalAgent({
+      agentId: this.id,
+      promptGuide: this.buildPromptGuide(),
       input,
       ctx,
-      (finalText) => {
-        const fields = parseFieldBlock(extractHandoff(finalText));
-        return {
-          marketAttitude: expectString(fields, "market_attitude"),
-          macroRiskFlags: expectArray(fields, "macro_risk_flags"),
-          macroTransmissionView: expectString(fields, "macro_transmission_view"),
-        };
-      },
-      (parsed) => ({
-        macroRiskFlagCount: parsed.macroRiskFlags.length,
-        marketAttitude: parsed.marketAttitude,
+      schema: macroSignalsSchema,
+      artifactType: "assessment",
+      buildSummaryJson: (signals) => ({
+        marketAttitude: signals.marketAttitude,
+        macroRiskFlagCount: signals.macroRiskFlags.length,
       }),
-    );
+    });
   },
-  applyResult(result, privateState) {
+  applyArtifact(artifact, privateState) {
+    const nextPrivateState = withAgentReport(privateState, this.id, artifact.reportMd);
     return {
-      ...privateState,
-      analysis: {
-        ...privateState.analysis,
-        marketAttitude: result.marketAttitude,
-        macroRiskFlags: result.macroRiskFlags,
-        macroTransmissionView: result.macroTransmissionView,
+      ...nextPrivateState,
+      derived: {
+        ...nextPrivateState.derived,
+        marketAttitude: artifact.signals?.marketAttitude ?? "",
+        macroRiskFlags: artifact.signals?.macroRiskFlags ?? [],
       },
     };
   },
@@ -281,75 +339,54 @@ const macroPolicyDefinition: AgentDefinition<
 const industryAnalystDefinition: AgentDefinition<
   DailySharedState,
   DailyPrivateState,
-  {
-    industryViews: IndustryView[];
-    industryRiskFlags: string[];
-  },
+  IndustrySignals,
   DailyAgentSelectedInput
 > = {
   id: "industry-analyst",
   markdownPath: "agents/industry-analyst.md",
-  buildContract: buildIndustryContract,
+  buildPromptGuide() {
+    return buildIndustryContract();
+  },
   selectInput(sharedState, privateState) {
     return {
       scopeType: "workflow",
       scopeKey: "daily-position-decision",
       inputSummaryJson: {
         industryCount: sharedState.industries.length,
-        industryEventCount: privateState.collected.informationEvents.filter((event) => event.level === "industry").length,
+        relatedEventCount: filterEvents(privateState.collected.informationEvents, "industry").length,
       },
-      contextBlocks: [
-        stringifyPromptContext("Industry Knowledge Base", sharedState.industries.map(industryDigest)),
+      contextBlocks: compactBlocks([
         stringifyPromptContext(
-          "Industry Events",
-          privateState.collected.informationEvents.filter((event) => event.level === "industry"),
+          "Industries",
+          sharedState.industries.map((industry) => industryDigest(industry)),
         ),
-      ],
+        stringifyPromptContext("Industry Events", filterEvents(privateState.collected.informationEvents, "industry")),
+        markdownContext("Collector Report", privateState.reports.byAgent["information-collector"]),
+        markdownContext("Macro Report", privateState.reports.byAgent["macro-policy-analyst"]),
+      ]),
     };
   },
   async execute(input, ctx) {
-    return executeStructuredAgent(
-      "industry-analyst",
-      this.buildContract(),
+    return executeMarkdownSignalAgent({
+      agentId: this.id,
+      promptGuide: this.buildPromptGuide(),
       input,
       ctx,
-      (finalText) => {
-        const industryMap = new Map(
-          input.contextBlocks ? [] : [],
-        );
-        void industryMap;
-        const handoff = extractHandoff(finalText);
-        const blocks = extractRepeatedBlocks(handoff, "Industry View");
-        const parsedIndustryViews = blocks.map((block) => {
-          const fields = parseFieldBlock(block);
-          return {
-            industryId: expectString(fields, "industry_id"),
-            name: expectString(fields, "name"),
-            stance: expectEnum(expectString(fields, "stance"), ["positive", "neutral", "negative"], "stance"),
-            summary: expectString(fields, "summary"),
-            keyChanges: expectArray(fields, "key_changes"),
-            riskFlags: expectArray(fields, "risk_flags"),
-            affectedTickers: optionalArray(fields, "affected_tickers"),
-          } satisfies IndustryView;
-        });
-        return {
-          industryViews: parsedIndustryViews,
-          industryRiskFlags: [...new Set(parsedIndustryViews.flatMap((item) => item.riskFlags))],
-        };
-      },
-      (parsed) => ({
-        industryViewCount: parsed.industryViews.length,
-        industryRiskFlagCount: parsed.industryRiskFlags.length,
+      schema: industrySignalsSchema,
+      artifactType: "assessment",
+      buildSummaryJson: (signals) => ({
+        industryCount: signals.industryViews.length,
+        knowledgePatchRefCount: signals.knowledgePatchRefs?.length ?? 0,
       }),
-    );
+    });
   },
-  applyResult(result, privateState) {
+  applyArtifact(artifact, privateState) {
+    const nextPrivateState = withAgentReport(privateState, this.id, artifact.reportMd);
     return {
-      ...privateState,
-      analysis: {
-        ...privateState.analysis,
-        industryViews: result.industryViews,
-        industryRiskFlags: result.industryRiskFlags,
+      ...nextPrivateState,
+      derived: {
+        ...nextPrivateState.derived,
+        industryStances: artifact.signals?.industryViews ?? [],
       },
     };
   },
@@ -358,17 +395,14 @@ const industryAnalystDefinition: AgentDefinition<
 const companyAnalystDefinition: AgentDefinition<
   DailySharedState,
   DailyPrivateState,
-  {
-    companyViews: DailyPrivateState["analysis"]["companyViews"];
-    positionUpdates: PositionUpdateCard[];
-    thesisDeltas: ThesisDelta[];
-    candidateAssessments: CandidateAssessment[];
-  },
+  CompanySignals,
   DailyAgentSelectedInput
 > = {
   id: "company-analyst",
   markdownPath: "agents/company-analyst.md",
-  buildContract: buildCompanyContract,
+  buildPromptGuide() {
+    return buildCompanyContract();
+  },
   selectInput(sharedState, privateState) {
     return {
       scopeType: "workflow",
@@ -376,97 +410,40 @@ const companyAnalystDefinition: AgentDefinition<
       inputSummaryJson: {
         positionCount: sharedState.positions.length,
         candidateCount: sharedState.candidates.length,
-        companyEventCount: privateState.collected.informationEvents.filter((event) => event.level === "company").length,
+        companyEventCount: filterEvents(privateState.collected.informationEvents, "company").length,
       },
-      contextBlocks: [
-        stringifyPromptContext("Positions", sharedState.positions),
-        stringifyPromptContext("Candidates", sharedState.candidates),
-        stringifyPromptContext("Theses", sharedState.theses.map(thesisDigest)),
-        stringifyPromptContext("Industry Views", privateState.analysis.industryViews),
-        stringifyPromptContext(
-          "Company Events",
-          privateState.collected.informationEvents.filter((event) => event.level === "company"),
-        ),
-      ],
+      contextBlocks: compactBlocks([
+        stringifyPromptContext("Current Positions", sharedState.positions),
+        stringifyPromptContext("Candidate Pool", sharedState.candidates),
+        stringifyPromptContext("Thesis Digest", sharedState.theses.map((thesis) => thesisDigest(thesis))),
+        stringifyPromptContext("Company Events", filterEvents(privateState.collected.informationEvents, "company")),
+        stringifyPromptContext("Industry Stances", privateState.derived.industryStances),
+        markdownContext("Macro Report", privateState.reports.byAgent["macro-policy-analyst"]),
+        markdownContext("Industry Report", privateState.reports.byAgent["industry-analyst"]),
+      ]),
     };
   },
   async execute(input, ctx) {
-    return executeStructuredAgent(
-      "company-analyst",
-      this.buildContract(),
+    return executeMarkdownSignalAgent({
+      agentId: this.id,
+      promptGuide: this.buildPromptGuide(),
       input,
       ctx,
-      (finalText) => {
-        const handoff = extractHandoff(finalText);
-        const companyViews = extractRepeatedBlocks(handoff, "Company View").map((block) => {
-          const fields = parseFieldBlock(block);
-          return {
-            ticker: expectString(fields, "ticker"),
-            name: expectString(fields, "name"),
-            thesisStatus: expectString(fields, "thesis_status"),
-            summary: expectString(fields, "summary"),
-            whyNow: expectString(fields, "why_now"),
-            supportingSignals: optionalArray(fields, "supporting_signals"),
-            warningSignals: optionalArray(fields, "warning_signals"),
-            actionBias: expectEnum(expectString(fields, "action_bias"), ["add", "hold", "reduce", "exit", "watch"], "action_bias"),
-            confidence: parseConfidence(expectString(fields, "confidence"), "confidence"),
-          };
-        });
-        const positionUpdates = extractRepeatedBlocks(handoff, "Position Update").map((block) => {
-          const fields = parseFieldBlock(block);
-          return {
-            ticker: expectString(fields, "ticker"),
-            name: expectString(fields, "name"),
-            thesisStatus: expectString(fields, "thesis_status"),
-            todayView: expectString(fields, "today_view"),
-            suggestedWeightChange: parseNumber(expectString(fields, "suggested_weight_change"), "suggested_weight_change"),
-            confidence: parseConfidence(expectString(fields, "confidence"), "confidence"),
-            whyNow: expectString(fields, "why_now"),
-            riskFlags: optionalArray(fields, "risk_flags"),
-            action: expectEnum(expectString(fields, "action"), ["add", "hold", "reduce", "exit", "conditional_add", "observe"], "action"),
-            priority: expectEnum(expectString(fields, "priority"), ["critical", "high", "medium", "low"], "priority"),
-            score: fields.score ? parseConfidence(expectString(fields, "score"), "score") : parseConfidence(expectString(fields, "confidence"), "confidence"),
-          } satisfies PositionUpdateCard;
-        });
-        const thesisDeltas = extractRepeatedBlocks(handoff, "Thesis Delta").map((block) => {
-          const fields = parseFieldBlock(block);
-          return {
-            thesisId: expectString(fields, "thesis_id"),
-            ticker: expectString(fields, "ticker"),
-            previousStatus: typeof fields.previous_status === "string" ? fields.previous_status.trim() : undefined,
-            nextStatus: expectString(fields, "next_status"),
-            changeSummary: expectString(fields, "change_summary"),
-          } satisfies ThesisDelta;
-        });
-        const candidateAssessments = extractRepeatedBlocks(handoff, "Candidate Assessment").map((block) => {
-          const fields = parseFieldBlock(block);
-          return {
-            ticker: expectString(fields, "ticker"),
-            name: expectString(fields, "name"),
-            score: parseConfidence(expectString(fields, "score"), "score"),
-            confidence: parseConfidence(expectString(fields, "confidence"), "confidence"),
-            action: expectEnum(expectString(fields, "action"), ["watch_for_swap", "watch_only"], "action"),
-            whyNow: expectString(fields, "why_now"),
-          } satisfies CandidateAssessment;
-        });
-        return { companyViews, positionUpdates, thesisDeltas, candidateAssessments };
-      },
-      (parsed) => ({
-        companyViewCount: parsed.companyViews.length,
-        positionUpdateCount: parsed.positionUpdates.length,
-        candidateAssessmentCount: parsed.candidateAssessments.length,
+      schema: companySignalsSchema,
+      artifactType: "assessment",
+      buildSummaryJson: (signals) => ({
+        securityCount: signals.securityUpdates.length,
+        knowledgePatchRefCount: signals.knowledgePatchRefs?.length ?? 0,
       }),
-    );
+    });
   },
-  applyResult(result, privateState) {
+  applyArtifact(artifact, privateState) {
+    const nextPrivateState = withAgentReport(privateState, this.id, artifact.reportMd);
     return {
-      ...privateState,
-      analysis: {
-        ...privateState.analysis,
-        companyViews: result.companyViews,
-        positionUpdates: result.positionUpdates,
-        candidateAssessments: result.candidateAssessments,
-        thesisDeltas: result.thesisDeltas,
+      ...nextPrivateState,
+      derived: {
+        ...nextPrivateState.derived,
+        securityUpdates: artifact.signals?.securityUpdates ?? [],
       },
     };
   },
@@ -475,159 +452,97 @@ const companyAnalystDefinition: AgentDefinition<
 const bearCaseDefinition: AgentDefinition<
   DailySharedState,
   DailyPrivateState,
-  {
-    bearCaseViews: BearCaseView[];
-    errorConditions: string[];
-    disconfirmingSignals: string[];
-  },
+  Record<string, unknown>,
   DailyAgentSelectedInput
 > = {
   id: "bear-case-analyst",
   markdownPath: "agents/bear-case-analyst.md",
-  buildContract: buildBearCaseContract,
-  selectInput(_sharedState, privateState) {
+  buildPromptGuide() {
+    return buildBearCaseContract();
+  },
+  selectInput(sharedState, privateState) {
     return {
       scopeType: "workflow",
       scopeKey: "daily-position-decision",
       inputSummaryJson: {
-        companyViewCount: privateState.analysis.companyViews.length,
-        industryViewCount: privateState.analysis.industryViews.length,
+        coveredSecurityCount: privateState.derived.securityUpdates.length,
+        pendingItemCount: sharedState.pendingItems.length,
       },
-      contextBlocks: [
-        stringifyPromptContext("Company Views", privateState.analysis.companyViews),
-        stringifyPromptContext("Industry Views", privateState.analysis.industryViews),
-        stringifyPromptContext("Market Attitude", privateState.analysis.marketAttitude ?? ""),
-        stringifyPromptContext("Macro Risk Flags", privateState.analysis.macroRiskFlags),
-      ],
+      contextBlocks: compactBlocks([
+        stringifyPromptContext("Security Updates", privateState.derived.securityUpdates),
+        stringifyPromptContext("Pending Items", sharedState.pendingItems),
+        markdownContext("Company Report", privateState.reports.byAgent["company-analyst"]),
+        markdownContext("Macro Report", privateState.reports.byAgent["macro-policy-analyst"]),
+      ]),
     };
   },
   async execute(input, ctx) {
-    return executeStructuredAgent(
-      "bear-case-analyst",
-      this.buildContract(),
+    return executeMarkdownSignalAgent({
+      agentId: this.id,
+      promptGuide: this.buildPromptGuide(),
       input,
       ctx,
-      (finalText) => {
-        const handoff = extractHandoff(finalText);
-        const bearCaseViews = extractRepeatedBlocks(handoff, "Bear Case").map((block) => {
-          const fields = parseFieldBlock(block);
-          return {
-            ticker: expectString(fields, "ticker"),
-            coreChallenge: expectString(fields, "core_challenge"),
-            errorConditions: expectArray(fields, "error_conditions"),
-            disconfirmingSignals: expectArray(fields, "disconfirming_signals"),
-            severity: expectEnum(expectString(fields, "severity"), ["medium", "high", "critical"], "severity"),
-          } satisfies BearCaseView;
-        });
-        return {
-          bearCaseViews,
-          errorConditions: [...new Set(bearCaseViews.flatMap((item) => item.errorConditions))].slice(0, 12),
-          disconfirmingSignals: [...new Set(bearCaseViews.flatMap((item) => item.disconfirmingSignals))].slice(0, 12),
-        };
-      },
-      (parsed) => ({
-        bearCaseCount: parsed.bearCaseViews.length,
-        errorConditionCount: parsed.errorConditions.length,
+      schema: emptySignalsSchema,
+      artifactType: "report",
+      buildSummaryJson: () => ({
+        hasStructuredSignals: false,
       }),
-    );
+    });
   },
-  applyResult(result, privateState) {
-    return {
-      ...privateState,
-      analysis: {
-        ...privateState.analysis,
-        bearCaseViews: result.bearCaseViews,
-        errorConditions: result.errorConditions,
-        disconfirmingSignals: result.disconfirmingSignals,
-      },
-    };
+  applyArtifact(artifact, privateState) {
+    return withAgentReport(privateState, this.id, artifact.reportMd);
   },
 };
 
 const portfolioManagerDefinition: AgentDefinition<
   DailySharedState,
   DailyPrivateState,
-  {
-    replacementRanking: ReplacementRankingItem[];
-    capitalAllocationView: string;
-    portfolioActionProposals: PortfolioActionProposal[];
-  },
+  PortfolioSignals,
   DailyAgentSelectedInput
 > = {
   id: "portfolio-manager",
   markdownPath: "agents/portfolio-manager.md",
-  buildContract: buildPortfolioContract,
+  buildPromptGuide() {
+    return buildPortfolioContract();
+  },
   selectInput(sharedState, privateState) {
     return {
       scopeType: "workflow",
       scopeKey: "daily-position-decision",
       inputSummaryJson: {
+        securityUpdateCount: privateState.derived.securityUpdates.length,
         positionCount: sharedState.positions.length,
-        candidateCount: sharedState.candidates.length,
-        positionUpdateCount: privateState.analysis.positionUpdates.length,
       },
-      contextBlocks: [
-        stringifyPromptContext("Positions", sharedState.positions),
-        stringifyPromptContext("Candidates", sharedState.candidates),
-        stringifyPromptContext("Position Updates", privateState.analysis.positionUpdates),
-        stringifyPromptContext("Candidate Assessments", privateState.analysis.candidateAssessments),
-        stringifyPromptContext("Bear Case Views", privateState.analysis.bearCaseViews),
-        stringifyPromptContext("Rules", sharedState.rules),
-      ],
+      contextBlocks: compactBlocks([
+        stringifyPromptContext("Current Positions", sharedState.positions),
+        stringifyPromptContext("Candidate Pool", sharedState.candidates),
+        stringifyPromptContext("Security Updates", privateState.derived.securityUpdates),
+        stringifyPromptContext("Macro Risk Flags", privateState.derived.macroRiskFlags),
+        markdownContext("Company Report", privateState.reports.byAgent["company-analyst"]),
+        markdownContext("Bear Case Report", privateState.reports.byAgent["bear-case-analyst"]),
+      ]),
     };
   },
   async execute(input, ctx) {
-    return executeStructuredAgent(
-      "portfolio-manager",
-      this.buildContract(),
+    return executeMarkdownSignalAgent({
+      agentId: this.id,
+      promptGuide: this.buildPromptGuide(),
       input,
       ctx,
-      (finalText) => {
-        const handoff = extractHandoff(finalText);
-        const rootFields = parseFieldBlock(handoff);
-        const replacementRanking = extractRepeatedBlocks(handoff, "Replacement Ranking").map((block) => {
-          const fields = parseFieldBlock(block);
-          return {
-            ticker: expectString(fields, "ticker"),
-            name: expectString(fields, "name"),
-            action: expectEnum(expectString(fields, "action"), ["keep", "watch_for_swap", "swap_candidate"], "action"),
-            score: parseConfidence(expectString(fields, "score"), "score"),
-            reason: expectString(fields, "reason"),
-          } satisfies ReplacementRankingItem;
-        });
-        const portfolioActionProposals = extractRepeatedBlocks(handoff, "Portfolio Action Proposal").map((block) => {
-          const fields = parseFieldBlock(block);
-          return {
-            ticker: expectString(fields, "ticker"),
-            name: expectString(fields, "name"),
-            action: expectEnum(expectString(fields, "action"), ["add", "hold", "reduce", "exit", "watch", "swap"], "action"),
-            weightChange: parseNumber(expectString(fields, "weight_change"), "weight_change"),
-            rationale: expectString(fields, "rationale"),
-            confidence: parseConfidence(expectString(fields, "confidence"), "confidence"),
-            fundingSource: typeof fields.funding_source === "string" ? fields.funding_source.trim() : undefined,
-            constraints: optionalArray(fields, "constraints"),
-          } satisfies PortfolioActionProposal;
-        });
-        return {
-          replacementRanking,
-          capitalAllocationView: expectString(rootFields, "capital_allocation_view"),
-          portfolioActionProposals,
-        };
-      },
-      (parsed) => ({
-        replacementRankingCount: parsed.replacementRanking.length,
-        proposalCount: parsed.portfolioActionProposals.length,
+      schema: portfolioSignalsSchema,
+      artifactType: "assessment",
+      buildSummaryJson: (signals) => ({
+        actionCount: signals.portfolioActions.length,
       }),
-    );
+    });
   },
-  applyResult(result, privateState) {
+  applyArtifact(artifact, privateState) {
+    const nextPrivateState = withAgentReport(privateState, this.id, artifact.reportMd);
     return {
-      ...privateState,
-      analysis: {
-        ...privateState.analysis,
-        replacementRanking: result.replacementRanking,
-        capitalAllocationView: result.capitalAllocationView,
-        portfolioActionProposals: result.portfolioActionProposals,
+      ...nextPrivateState,
+      derived: {
+        ...nextPrivateState.derived,
+        portfolioActions: artifact.signals?.portfolioActions ?? [],
       },
     };
   },
@@ -636,70 +551,52 @@ const portfolioManagerDefinition: AgentDefinition<
 const riskOfficerDefinition: AgentDefinition<
   DailySharedState,
   DailyPrivateState,
-  {
-    riskGate: RiskGateResult;
-    riskAlerts: string[];
-    riskLimits: string[];
-  },
+  RiskSignals,
   DailyAgentSelectedInput
 > = {
   id: "risk-officer",
   markdownPath: "agents/risk-officer.md",
-  buildContract: buildRiskContract,
+  buildPromptGuide() {
+    return buildRiskContract();
+  },
   selectInput(sharedState, privateState) {
     return {
       scopeType: "workflow",
       scopeKey: "daily-position-decision",
       inputSummaryJson: {
-        portfolioActionProposalCount: privateState.analysis.portfolioActionProposals.length,
-        macroRiskFlagCount: privateState.analysis.macroRiskFlags.length,
-        industryRiskFlagCount: privateState.analysis.industryRiskFlags.length,
+        portfolioActionCount: privateState.derived.portfolioActions.length,
+        macroRiskFlagCount: privateState.derived.macroRiskFlags.length,
       },
-      contextBlocks: [
-        stringifyPromptContext("Portfolio Snapshot", sharedState.positions),
-        stringifyPromptContext("Portfolio Action Proposals", privateState.analysis.portfolioActionProposals),
-        stringifyPromptContext("Risk Rules", sharedState.rules),
-        stringifyPromptContext("Macro Risk Flags", privateState.analysis.macroRiskFlags),
-        stringifyPromptContext("Industry Risk Flags", privateState.analysis.industryRiskFlags),
-      ],
+      contextBlocks: compactBlocks([
+        stringifyPromptContext("Rules", sharedState.rules),
+        stringifyPromptContext("Current Positions", sharedState.positions),
+        stringifyPromptContext("Portfolio Actions", privateState.derived.portfolioActions),
+        stringifyPromptContext("Macro Risk Flags", privateState.derived.macroRiskFlags),
+        markdownContext("Portfolio Report", privateState.reports.byAgent["portfolio-manager"]),
+      ]),
     };
   },
   async execute(input, ctx) {
-    return executeStructuredAgent(
-      "risk-officer",
-      this.buildContract(),
+    return executeMarkdownSignalAgent({
+      agentId: this.id,
+      promptGuide: this.buildPromptGuide(),
       input,
       ctx,
-      (finalText) => {
-        const fields = parseFieldBlock(extractHandoff(finalText));
-        const decision = expectEnum(expectString(fields, "risk_gate_decision"), ["pass", "pass_with_limit", "reject"], "risk_gate_decision");
-        const rationale = expectString(fields, "risk_gate_rationale");
-        const riskAlerts = expectArray(fields, "risk_alerts");
-        const riskLimits = expectArray(fields, "risk_limits");
-        return {
-          riskGate: {
-            decision,
-            alerts: [rationale, ...riskAlerts],
-            notToDo: riskLimits,
-          },
-          riskAlerts,
-          riskLimits,
-        };
-      },
-      (parsed) => ({
-        riskGateDecision: parsed.riskGate.decision,
-        riskAlertCount: parsed.riskAlerts.length,
+      schema: riskSignalsSchema,
+      artifactType: "assessment",
+      buildSummaryJson: (signals) => ({
+        decision: signals.riskGate.decision,
+        alertCount: signals.riskGate.alerts.length,
       }),
-    );
+    });
   },
-  applyResult(result, privateState) {
+  applyArtifact(artifact, privateState) {
+    const nextPrivateState = withAgentReport(privateState, this.id, artifact.reportMd);
     return {
-      ...privateState,
-      analysis: {
-        ...privateState.analysis,
-        riskGate: result.riskGate,
-        riskAlerts: result.riskAlerts,
-        riskLimits: result.riskLimits,
+      ...nextPrivateState,
+      derived: {
+        ...nextPrivateState.derived,
+        riskGate: artifact.signals?.riskGate,
       },
     };
   },
@@ -708,134 +605,64 @@ const riskOfficerDefinition: AgentDefinition<
 const chiefInvestmentOfficerDefinition: AgentDefinition<
   DailySharedState,
   DailyPrivateState,
-  {
-    finalActionFramework: string;
-    requiredActions: string[];
-    optionalActions: string[];
-    continueHolding: string[];
-    focusWatchlist: string[];
-    approvalPacketSummary: string;
-    dailyOperationSheetBody: string;
-  },
+  CioSignals,
   DailyAgentSelectedInput
 > = {
   id: "chief-investment-officer",
   markdownPath: "agents/chief-investment-officer.md",
-  buildContract: buildCioContract,
+  buildPromptGuide() {
+    return buildCioContract();
+  },
   selectInput(sharedState, privateState) {
     return {
       scopeType: "workflow",
       scopeKey: "daily-position-decision",
       inputSummaryJson: {
+        portfolioActionCount: privateState.derived.portfolioActions.length,
+        sheetItemCount: privateState.derived.sheetItems.length,
         pendingItemCount: sharedState.pendingItems.length,
-        positionUpdateCount: privateState.analysis.positionUpdates.length,
-        candidateAssessmentCount: privateState.analysis.candidateAssessments.length,
       },
-      contextBlocks: [
-        stringifyPromptContext("Market Attitude", privateState.analysis.marketAttitude ?? ""),
-        stringifyPromptContext("Industry Views", privateState.analysis.industryViews),
-        stringifyPromptContext("Position Updates", privateState.analysis.positionUpdates),
-        stringifyPromptContext("Candidate Assessments", privateState.analysis.candidateAssessments),
-        stringifyPromptContext("Portfolio Action Proposals", privateState.analysis.portfolioActionProposals),
-        stringifyPromptContext("Risk Gate", privateState.analysis.riskGate),
-        stringifyPromptContext("Risk Alerts", privateState.analysis.riskAlerts),
+      contextBlocks: compactBlocks([
+        stringifyPromptContext("Current Positions", sharedState.positions),
+        stringifyPromptContext("Candidate Pool", sharedState.candidates),
+        stringifyPromptContext("Security Updates", privateState.derived.securityUpdates),
+        stringifyPromptContext("Portfolio Actions", privateState.derived.portfolioActions),
+        stringifyPromptContext("Risk Gate", privateState.derived.riskGate ?? null),
         stringifyPromptContext("Pending Items", sharedState.pendingItems),
-      ],
+        markdownContext("Macro Report", privateState.reports.byAgent["macro-policy-analyst"]),
+        markdownContext("Company Report", privateState.reports.byAgent["company-analyst"]),
+        markdownContext("Bear Case Report", privateState.reports.byAgent["bear-case-analyst"]),
+        markdownContext("Portfolio Report", privateState.reports.byAgent["portfolio-manager"]),
+        markdownContext("Risk Report", privateState.reports.byAgent["risk-officer"]),
+      ]),
     };
   },
   async execute(input, ctx) {
-    return executeStructuredAgent(
-      "chief-investment-officer",
-      this.buildContract(),
+    return executeMarkdownSignalAgent({
+      agentId: this.id,
+      promptGuide: this.buildPromptGuide(),
       input,
       ctx,
-      (finalText) => {
-        const fields = parseFieldBlock(extractHandoff(finalText));
-        const contextBlocksText = input.contextBlocks.join("\n");
-        void contextBlocksText;
-        return {
-          finalActionFramework: expectString(fields, "final_action_framework"),
-          requiredActions: expectArray(fields, "required_actions"),
-          optionalActions: expectArray(fields, "optional_actions"),
-          continueHolding: expectArray(fields, "continue_holding"),
-          focusWatchlist: expectArray(fields, "focus_watchlist"),
-          approvalPacketSummary: expectString(fields, "approval_packet_summary"),
-          dailyOperationSheetBody: expectString(fields, "daily_operation_sheet_body"),
-        };
-      },
-      (parsed) => ({
-        requiredActionCount: parsed.requiredActions.length,
-        optionalActionCount: parsed.optionalActions.length,
-        continueHoldingCount: parsed.continueHolding.length,
+      schema: cioSignalsSchema,
+      artifactType: "decision_packet",
+      buildSummaryJson: (signals) => ({
+        sheetItemCount: signals.sheetItems.length,
+        requiredActionCount: signals.sheetItems.filter((item) => item.bucket === "required").length,
       }),
-    );
+    });
   },
-  applyResult(result, privateState) {
-    const updateMap = new Map(privateState.analysis.positionUpdates.map((item) => [item.ticker, item]));
-    const candidateMap = new Map(privateState.analysis.candidateAssessments.map((item) => [item.ticker, item]));
-    const proposalMap = new Map(privateState.analysis.portfolioActionProposals.map((item) => [item.ticker, item]));
-
-    function resolvePositionActionCard(ticker: string, fieldName: string): PositionUpdateCard {
-      const existing = updateMap.get(ticker);
-      if (existing) {
-        return existing;
-      }
-
-      const proposal = proposalMap.get(ticker);
-      if (proposal) {
-        return {
-          ticker: proposal.ticker,
-          name: proposal.name,
-          thesisStatus: "unchanged",
-          todayView: proposal.rationale,
-          suggestedWeightChange: proposal.weightChange,
-          confidence: proposal.confidence,
-          whyNow: proposal.rationale,
-          riskFlags: proposal.constraints,
-          action: proposal.action,
-          priority: proposal.confidence >= 0.75 ? "high" : proposal.confidence >= 0.55 ? "medium" : "low",
-          score: proposal.confidence,
-        };
-      }
-
-      throw new Error(`chief-investment-officer returned unknown ${fieldName} ticker ${ticker}`);
-    }
-
-    const requiredActions = result.requiredActions.map((ticker) => {
-      return resolvePositionActionCard(ticker, "required action");
-    });
-    const optionalActions = result.optionalActions.map((ref) => {
-      if (ref.startsWith("position:")) {
-        const ticker = ref.slice("position:".length);
-        return resolvePositionActionCard(ticker, `optional position ${ref}`);
-      }
-      if (ref.startsWith("candidate:")) {
-        const ticker = ref.slice("candidate:".length);
-        const candidate = candidateMap.get(ticker);
-        if (!candidate) {
-          throw new Error(`chief-investment-officer returned unknown optional candidate ${ref}`);
-        }
-        return candidate;
-      }
-      throw new Error(`chief-investment-officer optional_actions must use position:<ticker> or candidate:<ticker>, got ${ref}`);
-    });
-    const continueHolding = result.continueHolding.map((ticker) => {
-      return resolvePositionActionCard(ticker, "continue_holding");
-    });
-
+  applyArtifact(artifact, privateState) {
+    const nextPrivateState = withAgentReport(privateState, this.id, artifact.reportMd);
+    const sheetItems: OperationSheetItem[] = artifact.signals?.sheetItems ?? [];
     return {
-      ...privateState,
-      analysis: {
-        ...privateState.analysis,
-        requiredActions,
-        optionalActions,
-        continueHolding,
-        focusWatchlist: result.focusWatchlist,
+      ...nextPrivateState,
+      derived: {
+        ...nextPrivateState.derived,
+        sheetItems,
       },
       decision: {
-        ...privateState.decision,
-        finalActionFramework: result.finalActionFramework,
-        dailyOperationSheet: result.dailyOperationSheetBody,
+        ...nextPrivateState.decision,
+        dailyOperationSheet: artifact.reportMd,
       },
     };
   },
@@ -853,103 +680,3 @@ export const builtInAgentDefinitions: Array<
   riskOfficerDefinition,
   chiefInvestmentOfficerDefinition,
 ];
-
-export async function runInformationCollectorAgent(state: DailyRunGraphState): Promise<{
-  informationEvents: InformationEvent[];
-  coverageSummary: string[];
-  sourceLog: SourceLogItem[];
-}> {
-  return executeDefinitionForParsedResult(informationCollectorDefinition, state);
-}
-
-export async function runMacroPolicyAgent(state: DailyRunGraphState): Promise<{
-  marketAttitude: string;
-  macroRiskFlags: string[];
-  macroTransmissionView: string;
-}> {
-  return executeDefinitionForParsedResult(macroPolicyDefinition, state);
-}
-
-export async function runIndustryAnalystAgent(state: DailyRunGraphState): Promise<{
-  industryViews: IndustryView[];
-  industryRiskFlags: string[];
-}> {
-  return executeDefinitionForParsedResult(industryAnalystDefinition, state);
-}
-
-export async function runCompanyAnalystAgent(state: DailyRunGraphState): Promise<{
-  companyViews: DailyPrivateState["analysis"]["companyViews"];
-  positionUpdates: PositionUpdateCard[];
-  thesisDeltas: ThesisDelta[];
-  candidateAssessments: CandidateAssessment[];
-}> {
-  return executeDefinitionForParsedResult(companyAnalystDefinition, state);
-}
-
-export async function runBearCaseAgent(state: DailyRunGraphState): Promise<{
-  bearCaseViews: BearCaseView[];
-  errorConditions: string[];
-  disconfirmingSignals: string[];
-}> {
-  return executeDefinitionForParsedResult(bearCaseDefinition, state);
-}
-
-export async function runPortfolioManagerAgent(state: DailyRunGraphState): Promise<{
-  replacementRanking: ReplacementRankingItem[];
-  capitalAllocationView: string;
-  portfolioActionProposals: PortfolioActionProposal[];
-}> {
-  return executeDefinitionForParsedResult(portfolioManagerDefinition, state);
-}
-
-export async function runRiskOfficerAgent(state: DailyRunGraphState): Promise<{
-  riskGate: RiskGateResult;
-  riskAlerts: string[];
-  riskLimits: string[];
-}> {
-  return executeDefinitionForParsedResult(riskOfficerDefinition, state);
-}
-
-export async function runChiefInvestmentOfficerAgent(state: DailyRunGraphState): Promise<{
-  finalActionFramework: string;
-  requiredActions: PositionUpdateCard[];
-  optionalActions: Array<PositionUpdateCard | CandidateAssessment>;
-  continueHolding: PositionUpdateCard[];
-  focusWatchlist: string[];
-  approvalPacketSummary: string;
-  dailyOperationSheetBody: string;
-}> {
-  const nextPrivateState = await runAgentDefinition(
-    chiefInvestmentOfficerDefinition,
-    state.shared,
-    state.privateState,
-    createCompatAgentExecutionContext(state, "chief-investment-officer"),
-  );
-  return {
-    finalActionFramework: nextPrivateState.decision.finalActionFramework ?? "",
-    requiredActions: nextPrivateState.analysis.requiredActions,
-    optionalActions: nextPrivateState.analysis.optionalActions,
-    continueHolding: nextPrivateState.analysis.continueHolding,
-    focusWatchlist: nextPrivateState.analysis.focusWatchlist,
-    approvalPacketSummary: "",
-    dailyOperationSheetBody: nextPrivateState.decision.dailyOperationSheet ?? "",
-  };
-}
-
-export function renderOperationSheetFromBody(input: {
-  runDate: string;
-  marketAttitude: string;
-  riskGate: RiskGateResult;
-  body: string;
-}): string {
-  return stringifyMarkdownDocument(
-    {
-      kind: "daily_operation_sheet",
-      run_date: input.runDate,
-      status: "draft",
-      risk_gate: input.riskGate.decision,
-      market_attitude: input.marketAttitude,
-    },
-    input.body,
-  );
-}

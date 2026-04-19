@@ -76,6 +76,26 @@ export function resolveInvestmentOutputPath(investmentRoot: string, ...segments:
   return path.join(resolveInvestmentRuntimePathsFromRoot(investmentRoot).outputRoot, ...segments);
 }
 
+export function resolveAgentArtifactOutputPath(
+  investmentRoot: string,
+  workflowId: string,
+  runDate: string,
+  threadId: string,
+  agentId: string,
+  filename: string,
+): string {
+  return resolveInvestmentOutputPath(
+    investmentRoot,
+    "runs",
+    workflowId,
+    runDate,
+    threadId,
+    "agents",
+    agentId,
+    filename,
+  );
+}
+
 export function resolveInvestmentAgentsPath(investmentRoot: string, ...segments: string[]): string {
   return path.join(resolveInvestmentRuntimePathsFromRoot(investmentRoot).agentsRoot, ...segments);
 }
