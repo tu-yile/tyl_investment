@@ -34,34 +34,6 @@ function rewriteCopiedDatabasePaths(dbPath: string): void {
       ).map((row) => row.name),
     );
 
-    if (tables.has("industries")) {
-      db.exec(`
-        UPDATE industries
-        SET knowledge_md_path = REPLACE(knowledge_md_path, 'investment/knowledge/', 'investment/runtime/test/knowledge/')
-        WHERE knowledge_md_path LIKE 'investment/knowledge/%';
-      `);
-    }
-    if (tables.has("industry_knowledge_versions")) {
-      db.exec(`
-        UPDATE industry_knowledge_versions
-        SET source_md_path = REPLACE(source_md_path, 'investment/knowledge/', 'investment/runtime/test/knowledge/')
-        WHERE source_md_path LIKE 'investment/knowledge/%';
-      `);
-    }
-    if (tables.has("theses")) {
-      db.exec(`
-        UPDATE theses
-        SET source_md_path = REPLACE(source_md_path, 'investment/knowledge/', 'investment/runtime/test/knowledge/')
-        WHERE source_md_path LIKE 'investment/knowledge/%';
-      `);
-    }
-    if (tables.has("operation_sheets")) {
-      db.exec(`
-        UPDATE operation_sheets
-        SET markdown_path = REPLACE(markdown_path, 'investment/output/', 'investment/runtime/test/output/')
-        WHERE markdown_path LIKE 'investment/output/%';
-      `);
-    }
     if (tables.has("agent_artifacts")) {
       db.exec(`
         UPDATE agent_artifacts

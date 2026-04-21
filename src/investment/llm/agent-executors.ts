@@ -90,7 +90,7 @@ function subjectIndex(subjects: CollectionSubject[]): Map<string, CollectionSubj
 }
 
 function extractTickerFromRef(subjectRef: string): string | undefined {
-  const match = subjectRef.match(/^(?:ticker|position|candidate):(.+)$/);
+  const match = subjectRef.match(/^(?:ticker|position):(.+)$/);
   return match?.[1];
 }
 
@@ -108,7 +108,6 @@ function inferEventLevel(subjectRef: string, subject?: CollectionSubject): Infor
   }
   if (
     subjectRef.startsWith("position:") ||
-    subjectRef.startsWith("candidate:") ||
     subjectRef.startsWith("ticker:")
   ) {
     return "company";
@@ -409,12 +408,10 @@ const companyAnalystDefinition: AgentDefinition<
       scopeKey: "daily-position-decision",
       inputSummaryJson: {
         positionCount: sharedState.positions.length,
-        candidateCount: sharedState.candidates.length,
         companyEventCount: filterEvents(privateState.collected.informationEvents, "company").length,
       },
       contextBlocks: compactBlocks([
         stringifyPromptContext("Current Positions", sharedState.positions),
-        stringifyPromptContext("Candidate Pool", sharedState.candidates),
         stringifyPromptContext("Thesis Digest", sharedState.theses.map((thesis) => thesisDigest(thesis))),
         stringifyPromptContext("Company Events", filterEvents(privateState.collected.informationEvents, "company")),
         stringifyPromptContext("Industry Stances", privateState.derived.industryStances),
@@ -466,11 +463,9 @@ const bearCaseDefinition: AgentDefinition<
       scopeKey: "daily-position-decision",
       inputSummaryJson: {
         coveredSecurityCount: privateState.derived.securityUpdates.length,
-        pendingItemCount: sharedState.pendingItems.length,
       },
       contextBlocks: compactBlocks([
         stringifyPromptContext("Security Updates", privateState.derived.securityUpdates),
-        stringifyPromptContext("Pending Items", sharedState.pendingItems),
         markdownContext("Company Report", privateState.reports.byAgent["company-analyst"]),
         markdownContext("Macro Report", privateState.reports.byAgent["macro-policy-analyst"]),
       ]),
@@ -515,7 +510,6 @@ const portfolioManagerDefinition: AgentDefinition<
       },
       contextBlocks: compactBlocks([
         stringifyPromptContext("Current Positions", sharedState.positions),
-        stringifyPromptContext("Candidate Pool", sharedState.candidates),
         stringifyPromptContext("Security Updates", privateState.derived.securityUpdates),
         stringifyPromptContext("Macro Risk Flags", privateState.derived.macroRiskFlags),
         markdownContext("Company Report", privateState.reports.byAgent["company-analyst"]),
@@ -620,15 +614,12 @@ const chiefInvestmentOfficerDefinition: AgentDefinition<
       inputSummaryJson: {
         portfolioActionCount: privateState.derived.portfolioActions.length,
         sheetItemCount: privateState.derived.sheetItems.length,
-        pendingItemCount: sharedState.pendingItems.length,
       },
       contextBlocks: compactBlocks([
         stringifyPromptContext("Current Positions", sharedState.positions),
-        stringifyPromptContext("Candidate Pool", sharedState.candidates),
         stringifyPromptContext("Security Updates", privateState.derived.securityUpdates),
         stringifyPromptContext("Portfolio Actions", privateState.derived.portfolioActions),
         stringifyPromptContext("Risk Gate", privateState.derived.riskGate ?? null),
-        stringifyPromptContext("Pending Items", sharedState.pendingItems),
         markdownContext("Macro Report", privateState.reports.byAgent["macro-policy-analyst"]),
         markdownContext("Company Report", privateState.reports.byAgent["company-analyst"]),
         markdownContext("Bear Case Report", privateState.reports.byAgent["bear-case-analyst"]),

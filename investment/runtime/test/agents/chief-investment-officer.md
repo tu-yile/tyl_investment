@@ -37,5 +37,5 @@ forbidden_actions: ["skip_risk_gate", "approval_bypass", "trade_execution"]
   `approval_packet_summary`
   `daily_operation_sheet_body`
 - `required_actions` / `continue_holding` 使用 ticker bullet list
-- `optional_actions` 使用 `position:<ticker>` 或 `candidate:<ticker>` 的 bullet list
+- `optional_actions` 使用 `position:<ticker>` 的 bullet list
 - `daily_operation_sheet_body` 必须放在 fenced markdown code block 中，便于直接落盘

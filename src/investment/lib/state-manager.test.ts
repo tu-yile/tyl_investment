@@ -111,50 +111,12 @@ test("persistDailyDraft and applyApprovalWriteback close the sqlite loop", async
       marketScope: "A股",
       holdingPeriod: "中线",
     });
-    store.upsertIndustry({
-      industryId: "power-equipment",
-      name: "电力设备与储能",
-      knowledgeMdPath: "investment/knowledge/industries/power-equipment.md",
-    });
-    store.insertIndustryKnowledgeVersion({
-      industryId: "power-equipment",
-      versionNo: 1,
-      currentView: "positive",
-      recentChange: "grid_and_storage_supportive",
-      keySignals: ["电网投资维持强度"],
-      watchpoints: ["海外需求波动"],
-      sourceMdPath: "investment/knowledge/industries/power-equipment.md",
-      editor: "test",
-    });
-    store.upsertInstrument({
-      ticker: "300750",
-      name: "宁德时代",
-      industryId: "power-equipment",
-    });
-    store.upsertThesis({
-      thesisId: "thesis-300750",
-      ticker: "300750",
-      industryId: "power-equipment",
-      status: "strengthened",
-      catalystStrength: "strong",
-      valuationView: "okay",
-      riskLevel: "medium",
-      confidenceBase: 0.72,
-      monitoringFlags: ["关注海外需求波动"],
-      lastUpdated: "2026-04-08",
-      sourceMdPath: "investment/knowledge/companies/300750-CATL/thesis.md",
-      currentVersionNo: 1,
-    });
-    store.insertThesisVersion({
-      thesisId: "thesis-300750",
-      versionNo: 1,
-      changeReason: "seed",
-      editor: "test",
-      coreClaimMd: "宁德时代核心逻辑稳定。",
-    });
     store.upsertPosition({
       portfolioId: "main-portfolio",
       ticker: "300750",
+      name: "宁德时代",
+      industryId: "power-equipment",
+      industryName: "电力设备与储能",
       currentWeight: 4,
       costBasis: 188,
       openedAt: "2026-03-01T09:30:00+08:00",
@@ -225,26 +187,6 @@ test("persistDailyDraft and applyApprovalWriteback close the sqlite loop", async
   try {
     const updatedPosition = checkStore.listRuntimePositions("main-portfolio")[0];
     assert.equal(updatedPosition?.currentWeight, 3);
-
-    const operationSheet = checkStore.getOperationSheetByWorkflowRunId("run-1");
-    assert.equal(operationSheet?.status, "approve");
-
-    const approvals = checkStore.listApprovals(operationSheet!.operationSheetId);
-    assert.equal(approvals.length, 1);
-
-    const executionCount = checkStore.db
-      .prepare("SELECT COUNT(*) AS count FROM execution_results")
-      .get() as { count: number };
-    assert.equal(executionCount.count, 1);
-
-    const thesis = checkStore.getThesis("thesis-300750");
-    assert.equal(thesis?.lastUpdated, "2026-04-10");
-    assert.equal(thesis?.currentVersionNo, 2);
-
-    const dailySnapshots = checkStore.db
-      .prepare("SELECT COUNT(*) AS count FROM position_daily_snapshots WHERE trade_date = ?")
-      .get("2026-04-10") as { count: number };
-    assert.equal(dailySnapshots.count, 1);
   } finally {
     checkStore.close();
   }
@@ -255,6 +197,7 @@ test("persistDailyDraft and applyApprovalWriteback close the sqlite loop", async
     path.join(investmentRoot, "knowledge/companies/300750-CATL/thesis.md"),
     "utf8",
   );
+  assert.match(thesisMarkdown, /last_updated: 2026-04-10/);
   assert.match(thesisMarkdown, /Latest Decision 2026-04-10/);
 
   await fs.rm(tempRoot, { recursive: true, force: true });
@@ -273,10 +216,6 @@ test("persistDailyDraft writes workflow output into the test runtime tree", asyn
         strategyStyle: "主动多头",
         marketScope: "A股",
         holdingPeriod: "中线",
-      });
-      store.upsertInstrument({
-        ticker: "300750",
-        name: "宁德时代",
       });
       store.createWorkflowRun({
         workflowRunId: "run-test",

@@ -29,9 +29,6 @@
 ### 优先进入数据库的内容
 
 - 当前持仓
-- 持仓历史快照
-- 候选池状态
-- thesis 的结构化字段
 - 每日 `Position Update Card`
 - 每日 `Operation Sheet`
 - 风险闸门结果
@@ -63,42 +60,23 @@
 
 ### 核心主数据
 
-- `instruments`
-- `industries`
 - `portfolios`
 
 ### 组合与候选池
 
 - `positions`
-- `position_daily_snapshots`
-- `candidate_pool_entries`
-
-### thesis 与知识索引
-
-- `theses`
-- `thesis_versions`
-- `industry_knowledge_versions`
-
-注意：
-`thesis_versions` 和 `industry_knowledge_versions` 不是为了把正文知识彻底数据库化，而是为了给 Markdown 资产建立结构化索引和版本元数据。
 
 ### 每日 workflow 运行态
 
-- `market_context_snapshots`
 - `workflow_runs`
 - `agent_runs`
 - `position_update_cards`
 - `candidate_assessments`
 - `risk_gate_results`
-- `operation_sheets`
-- `operation_sheet_items`
 
 ### 治理与闭环
 
-- `approvals`
-- `execution_results`
-- `observation_items`
-- `portfolio_snapshots`
+- 当前这层已不再保留独立治理/快照物理表，闭环主要依赖 Markdown 产物与运行记录。
 
 ## 建议的主键策略
 
@@ -127,8 +105,6 @@ v1 推荐继续使用 SQLite，原因：
 ### Phase 1
 
 - Position 从 Markdown 迁移到 DB
-- Candidate Pool 从 Markdown 迁移到 DB
-- Thesis 的结构化字段进入 DB
 - Daily run 输出与审批结果进入 DB
 
 ### Phase 2
@@ -145,7 +121,7 @@ v1 推荐继续使用 SQLite，原因：
 ## 当前最推荐的实施顺序
 
 1. 先建表
-2. 先把 `positions`、`candidate_pool_entries`、`theses`、`operation_sheets` 跑起来
+2. 先把 `positions` 跑起来
 3. 再改 `src/investment` 读取 DB 而不是读取对应 Markdown
 4. 保留 Markdown 作为知识资产，不和运行态数据混用
 

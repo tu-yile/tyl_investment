@@ -590,7 +590,7 @@ export function HomePage() {
                     <div className="sqlite-fact-label">{editorMode === "create" ? "数据写入" : "记录定位"}</div>
                     <div className="sqlite-path-value mono-text">
                       {editorMode === "create"
-                        ? "investment.sqlite3 / positions + instruments + industries"
+                        ? "investment.sqlite3 / positions"
                         : `${selectedPosition?.portfolioId ?? "-"} / #${selectedPosition?.positionId ?? "-"}`}
                     </div>
                   </article>

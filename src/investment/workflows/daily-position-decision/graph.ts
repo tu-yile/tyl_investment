@@ -14,11 +14,9 @@ import { runRegisteredAgent } from "../../agents/registry.js";
 import { applyApprovalWriteback, persistDailyDraft } from "../../lib/state-manager.js";
 import { resolveLangGraphCheckpointPath } from "../../graph/checkpoint-config.js";
 import {
+  createDefaultMarketContext,
   DEFAULT_PORTFOLIO_ID,
-  loadRuntimeCandidates,
   loadRuntimeIndustries,
-  loadRuntimeMarketContext,
-  loadRuntimePendingItems,
   loadRuntimePositions,
   loadRuntimeRules,
   loadRuntimeTheses,
@@ -135,22 +133,12 @@ function buildCollectionSubjects(sharedState: Omit<DailySharedState, "collection
     industryId: position.industryId,
   }));
 
-  const candidateSubjects = sharedState.candidates.map((candidate) => ({
-    id: `candidate:${candidate.ticker}`,
-    label: candidate.name,
-    level: "company" as const,
-    keywords: [candidate.name, candidate.ticker],
-    ticker: candidate.ticker,
-    industryId: candidate.industryId,
-  }));
-
-  return [...marketSubjects, ...industrySubjects, ...positionSubjects, ...candidateSubjects];
+  return [...marketSubjects, ...industrySubjects, ...positionSubjects];
 }
 
 function emptySharedState(): DailySharedState {
   return {
     positions: [],
-    candidates: [],
     theses: [],
     industries: [],
     rules: {
@@ -171,10 +159,9 @@ function emptySharedState(): DailySharedState {
       priorityWatchpoints: [],
       notes: "",
     },
-    pendingItems: [],
     collectionScope: {
       timeWindow: { start: "", end: "" },
-      scopes: ["market", "positions", "candidates"],
+      scopes: ["market", "positions"],
       subjects: [],
       sourceTypes: ["news", "announcements"],
     },
@@ -249,25 +236,21 @@ function findSecurityName(sharedState: DailySharedState, ticker: string | undefi
     return undefined;
   }
   const position = sharedState.positions.find((item) => item.ticker === ticker);
-  if (position) {
-    return position.name;
-  }
-  const candidate = sharedState.candidates.find((item) => item.ticker === ticker);
-  return candidate?.name;
+  return position?.name;
 }
 
 function normalizeSheetRef(ref: string | undefined): string {
   if (!ref) {
     return "";
   }
-  return ref.replace(/^(?:watch|position|candidate|ticker|industry):/, "").trim();
+  return ref.replace(/^(?:watch|position|ticker|industry):/, "").trim();
 }
 
 function extractSheetTicker(item: OperationSheetItem): string | undefined {
   if (!item.ref) {
     return undefined;
   }
-  const match = item.ref.match(/^(?:position|candidate|ticker):(.+)$/);
+  const match = item.ref.match(/^(?:position|ticker):(.+)$/);
   return match?.[1];
 }
 
@@ -373,31 +356,27 @@ function buildAgentContext(
 function createDailyRunGraph(repoRoot: string, runtimeContext: WorkflowRuntimeContext) {
   async function startNode(state: DailyRunGraphState): Promise<Partial<DailyRunGraphState>> {
     const root = state.context.investmentRoot;
-    const [positions, candidates, theses, industries, rules, marketContext, pendingItems] = await Promise.all([
+    const [positions, theses, industries, rules] = await Promise.all([
       loadRuntimePositions(root, state.context.runDate, DEFAULT_PORTFOLIO_ID),
-      loadRuntimeCandidates(root, DEFAULT_PORTFOLIO_ID),
       loadRuntimeTheses(root),
       loadRuntimeIndustries(root),
       loadRuntimeRules(root),
-      loadRuntimeMarketContext(root),
-      loadRuntimePendingItems(root, DEFAULT_PORTFOLIO_ID),
     ]);
+    const marketContext = createDefaultMarketContext(state.context.runDate);
 
     const baseSharedState = {
       positions,
-      candidates,
       theses,
       industries,
       rules,
       marketContext,
-      pendingItems,
     };
 
     const shared: DailySharedState = {
       ...baseSharedState,
       collectionScope: {
         timeWindow: previousTradingWindow(state.context.runDate),
-        scopes: ["market", "positions", "candidates"] as CollectionScopeType[],
+        scopes: ["market", "positions"] as CollectionScopeType[],
         subjects: buildCollectionSubjects(baseSharedState),
         sourceTypes: ["news", "announcements"] as SourceType[],
       },

@@ -1,6 +1,5 @@
 import type { AgentId } from "../../agents/types.js";
 import type {
-  CandidateRecord,
   IndustryRecord,
   MarketContext,
   PositionRecord,
@@ -9,7 +8,7 @@ import type {
   ThesisRecord,
 } from "../../types.js";
 
-export type CollectionScopeType = "market" | "positions" | "candidates";
+export type CollectionScopeType = "market" | "positions";
 export type SourceType = "news" | "announcements";
 export type EventLevel = "market" | "industry" | "company";
 export type ImpactHint = "positive" | "negative" | "mixed" | "neutral";
@@ -130,12 +129,10 @@ export interface DailyRunGraphContext {
 
 export interface DailySharedState {
   positions: PositionRecord[];
-  candidates: CandidateRecord[];
   theses: ThesisRecord[];
   industries: IndustryRecord[];
   rules: RulesConfig;
   marketContext: MarketContext;
-  pendingItems: string[];
   collectionScope: {
     timeWindow: TimeWindow;
     scopes: CollectionScopeType[];

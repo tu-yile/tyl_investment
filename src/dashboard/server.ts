@@ -484,14 +484,11 @@ function queryInvestmentPositionsByStatus(
         p.thesis_id,
         p.notes_md,
         p.updated_at,
-        COALESCE(i.name, p.ticker) AS instrument_name,
-        COALESCE(t.industry_id, i.industry_id, '') AS industry_id,
-        COALESCE(ind.name, '') AS industry_name
+        COALESCE(p.name, p.ticker) AS instrument_name,
+        COALESCE(p.industry_id, '') AS industry_id,
+        COALESCE(p.industry_name, '') AS industry_name
       FROM positions p
       LEFT JOIN portfolios pf ON pf.portfolio_id = p.portfolio_id
-      LEFT JOIN instruments i ON i.ticker = p.ticker
-      LEFT JOIN theses t ON t.thesis_id = p.thesis_id
-      LEFT JOIN industries ind ON ind.industry_id = COALESCE(t.industry_id, i.industry_id)
       WHERE p.portfolio_id = ? AND p.status ${status === "open" ? "= 'open'" : "!= 'open'"}
       ORDER BY ${status === "open" ? "p.current_weight DESC, p.position_id ASC" : "COALESCE(p.closed_at, p.updated_at) DESC, p.position_id DESC"}
     `)
@@ -517,14 +514,11 @@ function getInvestmentPositionById(positionId: number): InvestmentPositionRecord
           p.thesis_id,
           p.notes_md,
           p.updated_at,
-          COALESCE(i.name, p.ticker) AS instrument_name,
-          COALESCE(t.industry_id, i.industry_id, '') AS industry_id,
-          COALESCE(ind.name, '') AS industry_name
+          COALESCE(p.name, p.ticker) AS instrument_name,
+          COALESCE(p.industry_id, '') AS industry_id,
+          COALESCE(p.industry_name, '') AS industry_name
         FROM positions p
         LEFT JOIN portfolios pf ON pf.portfolio_id = p.portfolio_id
-        LEFT JOIN instruments i ON i.ticker = p.ticker
-        LEFT JOIN theses t ON t.thesis_id = p.thesis_id
-        LEFT JOIN industries ind ON ind.industry_id = COALESCE(t.industry_id, i.industry_id)
         WHERE p.position_id = ?
         LIMIT 1
       `)
@@ -592,18 +586,12 @@ async function createInvestmentPosition(payload: unknown): Promise<InvestmentPos
         throw new Error(`Position already exists: ${nextPayload.ticker}`);
       }
 
-      store.upsertIndustry({
-        industryId: nextPayload.industryId,
-        name: nextPayload.sector,
-      });
-      store.upsertInstrument({
-        ticker: nextPayload.ticker,
-        name: nextPayload.name,
-        industryId: nextPayload.industryId,
-      });
       return store.upsertPosition({
         portfolioId: portfolio.portfolioId,
         ticker: nextPayload.ticker,
+        name: nextPayload.name,
+        industryId: nextPayload.industryId,
+        industryName: nextPayload.sector,
         status: "open",
         currentWeight: nextPayload.weight,
         costBasis: nextPayload.costBasis,
@@ -634,22 +622,15 @@ async function updateInvestmentPosition(
         throw new Error(`Position not found: ${normalizedTicker}`);
       }
 
-      store.upsertIndustry({
-        industryId: nextPayload.industryId,
-        name: nextPayload.sector,
-      });
-      store.upsertInstrument({
-        ticker: normalizedTicker,
-        name: nextPayload.name,
-        industryId: nextPayload.industryId,
-      });
-
       const openedAt = toOpenedAtFromHoldingDays(nextPayload.holdingDays);
       if (nextPayload.weight === 0) {
         const closedAt = new Date().toISOString();
         store.upsertPosition({
           portfolioId: portfolio.portfolioId,
           ticker: normalizedTicker,
+          name: nextPayload.name,
+          industryId: nextPayload.industryId,
+          industryName: nextPayload.sector,
           status: "closed",
           currentWeight: 0,
           costBasis: nextPayload.costBasis,
@@ -667,6 +648,9 @@ async function updateInvestmentPosition(
       const positionId = store.upsertPosition({
         portfolioId: portfolio.portfolioId,
         ticker: normalizedTicker,
+        name: nextPayload.name,
+        industryId: nextPayload.industryId,
+        industryName: nextPayload.sector,
         status: "open",
         currentWeight: nextPayload.weight,
         costBasis: nextPayload.costBasis,

@@ -22,18 +22,6 @@ export interface PositionRecord {
   path: string;
 }
 
-// CandidateRecord 表示候选池中的可替代标的，用于组合层的换仓排序。
-export interface CandidateRecord {
-  ticker: string;
-  name: string;
-  targetEntryWeight: number;
-  industryId: string;
-  thesisId: string;
-  sourceFlow: string;
-  status: string;
-  path: string;
-}
-
 // ThesisRecord 把公司判断结构化，便于 workflow 在每日重评时直接消费。
 export interface ThesisRecord {
   thesisId: string;

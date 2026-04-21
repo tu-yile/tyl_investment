@@ -17,7 +17,7 @@
     "start": "npm run build && node dist/index.js",
     "dev": "npm run build && node dist/index.js",
     "gateway": "npm run build && node dist/gateway/index.js",
-    "gateway:logs": "npm run build && node dist/dashboard/server.js",
+    "dashboard": "npm run build && node dist/dashboard/server.js",
     "lint": "node -e \"console.log('No lint configured')\"",
     "investment": "npm run build && node dist/investment/index.js",
     "investment:validate": "npm run build && node dist/investment/index.js validate-md",

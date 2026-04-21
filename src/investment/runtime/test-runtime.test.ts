@@ -38,16 +38,7 @@ async function createRepoFixture(): Promise<string> {
   const dbPath = path.join(prodPaths.dataRoot, "investment.sqlite3");
   const db = new DatabaseSync(dbPath);
   try {
-    db.exec(`
-      CREATE TABLE industries (knowledge_md_path TEXT);
-      CREATE TABLE industry_knowledge_versions (source_md_path TEXT);
-      CREATE TABLE theses (source_md_path TEXT);
-      CREATE TABLE operation_sheets (markdown_path TEXT);
-      INSERT INTO industries (knowledge_md_path) VALUES ('investment/knowledge/sample.md');
-      INSERT INTO industry_knowledge_versions (source_md_path) VALUES ('investment/knowledge/sample.md');
-      INSERT INTO theses (source_md_path) VALUES ('investment/knowledge/sample.md');
-      INSERT INTO operation_sheets (markdown_path) VALUES ('investment/output/daily/sample.md');
-    `);
+    db.exec("CREATE TABLE workflow_runs (workflow_run_id TEXT);");
   } finally {
     db.close();
   }
@@ -65,16 +56,6 @@ test("initializeTestRuntime copies prod data into the test tree without output",
   await assert.doesNotReject(fs.access(path.join(testPaths.knowledgeRoot, "sample.md")));
   await assert.doesNotReject(fs.access(path.join(testPaths.dataRoot, "investment.sqlite3")));
   await assert.doesNotReject(fs.access(testPaths.outputRoot));
-
-  const db = new DatabaseSync(path.join(testPaths.dataRoot, "investment.sqlite3"), { readOnly: true });
-  try {
-    const industryPath = db.prepare("SELECT knowledge_md_path AS path FROM industries").get() as { path: string };
-    const outputPath = db.prepare("SELECT markdown_path AS path FROM operation_sheets").get() as { path: string };
-    assert.equal(industryPath.path, "investment/runtime/test/knowledge/sample.md");
-    assert.equal(outputPath.path, "investment/runtime/test/output/daily/sample.md");
-  } finally {
-    db.close();
-  }
 
   await fs.rm(repoRoot, { recursive: true, force: true });
 });
