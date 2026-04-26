@@ -278,7 +278,6 @@ class JsonRpcStdioCodexClient {
       input: [{ type: "text", text: runState.input.prompt }],
       approvalPolicy: runState.input.approvalPolicy,
       personality: runState.input.personality,
-      effort: runState.input.effort ?? null,
       model: runState.input.model ?? null,
       summary: runState.input.summary,
       sandboxPolicy,

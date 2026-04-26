@@ -78,7 +78,6 @@ export interface WorkflowAgentRunHooks {
 
 export interface WorkflowRuntimeContext extends WorkflowAgentRunHooks {
   repoRoot: string;
-  investmentRoot: string;
   workflowId: WorkflowId;
   workflowRunId: string;
   runDate: string;
@@ -89,14 +88,12 @@ export interface WorkflowRuntimeContext extends WorkflowAgentRunHooks {
 }
 
 export interface WorkflowStartInput {
-  investmentRoot: string;
   runDate: string;
   threadId?: string;
   triggerType?: WorkflowTriggerType;
 }
 
 export interface WorkflowResumeInput {
-  investmentRoot: string;
   threadId: string;
   runDate?: string;
 }

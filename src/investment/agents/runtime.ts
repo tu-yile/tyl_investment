@@ -62,7 +62,6 @@ export async function runAgentDefinition<
 
 export function createAgentExecutionContext(args: {
   agentId: AgentId;
-  investmentRoot: string;
   workflowId: AgentExecutionContext["workflowId"];
   workflowRunId: string;
   runDate: string;

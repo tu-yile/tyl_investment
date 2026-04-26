@@ -20,7 +20,13 @@ async function writeMarkdown(filePath: string, frontmatter: Record<string, unkno
 async function createTempInvestmentRoot(): Promise<{ tempRoot: string; investmentRoot: string; dbPath: string }> {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "investment-runtime-"));
   const investmentRoot = path.join(tempRoot, "investment");
+  const dbAssetsRoot = path.join(tempRoot, "db", "investment");
   await fs.mkdir(investmentRoot, { recursive: true });
+  await fs.mkdir(dbAssetsRoot, { recursive: true });
+  await fs.copyFile(
+    path.join(process.cwd(), "db", "investment", "schema.sql"),
+    path.join(dbAssetsRoot, "schema.sql"),
+  );
   return {
     tempRoot,
     investmentRoot,
@@ -39,6 +45,16 @@ async function withInvestmentEnv<T>(env: "prod" | "test", work: () => Promise<T>
     } else {
       process.env.INVESTMENT_ENV = previous;
     }
+  }
+}
+
+async function withCwd<T>(cwd: string, work: () => Promise<T>): Promise<T> {
+  const previous = process.cwd();
+  process.chdir(cwd);
+  try {
+    return await work();
+  } finally {
+    process.chdir(previous);
   }
 }
 
@@ -134,53 +150,55 @@ test("persistDailyDraft and applyApprovalWriteback close the sqlite loop", async
     store.close();
   }
 
-  await persistDailyDraft(investmentRoot, {
-    workflowRunId: "run-1",
-    runDate: "2026-04-10",
-    marketAttitude: "偏积极",
-    riskGate: {
-      decision: "pass",
-      alerts: ["组合允许执行"],
-      notToDo: ["不要追高"],
-    },
-    sheetItems: [
-      {
-        bucket: "required",
-        ref: "position:300750",
-        action: "reduce",
-        weightChange: -1,
-        confidence: 0.8,
+  const result = await withCwd(tempRoot, async () => {
+    await persistDailyDraft({
+      workflowRunId: "run-1",
+      runDate: "2026-04-10",
+      marketAttitude: "偏积极",
+      riskGate: {
+        decision: "pass",
+        alerts: ["组合允许执行"],
+        notToDo: ["不要追高"],
       },
-      {
-        bucket: "watch",
-        ref: "watch:跟踪储能订单兑现",
-      },
-    ],
-    dailyOperationSheetBody: "## 必须动作\n- 宁德时代减仓 1%",
-  });
+      sheetItems: [
+        {
+          bucket: "required",
+          ref: "position:300750",
+          action: "reduce",
+          weightChange: -1,
+          confidence: 0.8,
+        },
+        {
+          bucket: "watch",
+          ref: "watch:跟踪储能订单兑现",
+        },
+      ],
+      dailyOperationSheetBody: "## 必须动作\n- 宁德时代减仓 1%",
+    });
 
-  const result = await applyApprovalWriteback(investmentRoot, {
-    workflowRunId: "run-1",
-    runDate: "2026-04-10",
-    decision: "approve",
-    reviewer: "tester",
-    notes: "批准执行",
-    marketAttitude: "偏积极",
-    riskGate: {
-      decision: "pass",
-      alerts: ["组合允许执行"],
-      notToDo: ["不要追高"],
-    },
-    dailyOperationSheetBody: "## 必须动作\n- 宁德时代减仓 1%",
-    sheetItems: [
-      {
-        bucket: "required",
-        ref: "position:300750",
-        action: "reduce",
-        weightChange: -1,
-        confidence: 0.8,
+    return applyApprovalWriteback({
+      workflowRunId: "run-1",
+      runDate: "2026-04-10",
+      decision: "approve",
+      reviewer: "tester",
+      notes: "批准执行",
+      marketAttitude: "偏积极",
+      riskGate: {
+        decision: "pass",
+        alerts: ["组合允许执行"],
+        notToDo: ["不要追高"],
       },
-    ],
+      dailyOperationSheetBody: "## 必须动作\n- 宁德时代减仓 1%",
+      sheetItems: [
+        {
+          bucket: "required",
+          ref: "position:300750",
+          action: "reduce",
+          weightChange: -1,
+          confidence: 0.8,
+        },
+      ],
+    });
   });
 
   const checkStore = new InvestmentStore({ dbPath });
@@ -229,30 +247,32 @@ test("persistDailyDraft writes workflow output into the test runtime tree", asyn
       store.close();
     }
 
-    const result = await persistDailyDraft(investmentRoot, {
-      workflowRunId: "run-test",
-      runDate: "2026-04-11",
-      marketAttitude: "中性偏积极",
-      riskGate: {
-        decision: "pass",
-        alerts: ["测试环境允许执行"],
-        notToDo: [],
-      },
-      sheetItems: [
-        {
-          bucket: "hold",
-          ref: "position:300750",
-          action: "hold",
-          weightChange: 0,
-          confidence: 0.75,
+    const result = await withCwd(tempRoot, () =>
+      persistDailyDraft({
+        workflowRunId: "run-test",
+        runDate: "2026-04-11",
+        marketAttitude: "中性偏积极",
+        riskGate: {
+          decision: "pass",
+          alerts: ["测试环境允许执行"],
+          notToDo: [],
         },
-      ],
-      dailyOperationSheetBody: "## 测试环境\n- 验证输出路径",
-    });
+        sheetItems: [
+          {
+            bucket: "hold",
+            ref: "position:300750",
+            action: "hold",
+            weightChange: 0,
+            confidence: 0.75,
+          },
+        ],
+        dailyOperationSheetBody: "## 测试环境\n- 验证输出路径",
+      }),
+    );
 
     assert.equal(
-      result.outputMarkdownPath,
-      path.join(testPaths.outputRoot, "daily", "2026-04-11", "2026-04-11-daily-operation-sheet.md"),
+      await fs.realpath(result.outputMarkdownPath),
+      await fs.realpath(path.join(testPaths.outputRoot, "daily", "2026-04-11", "2026-04-11-daily-operation-sheet.md")),
     );
     await assert.doesNotReject(fs.access(result.outputMarkdownPath));
     await fs.rm(tempRoot, { recursive: true, force: true });

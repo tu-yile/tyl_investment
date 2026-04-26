@@ -172,16 +172,12 @@ async function executeMarkdownSignalAgent<TSignals>(args: {
   agentId: AgentDefinition<any, any, any>["id"];
   promptGuide: string;
   input: DailyAgentSelectedInput;
-  ctx: {
-    investmentRoot: string;
-  };
   schema: z.ZodType<TSignals>;
   artifactType: "report" | "assessment" | "decision_packet" | "knowledge_proposal";
   buildSummaryJson?: (signals: TSignals, reportMd: string) => unknown;
 }): Promise<AgentExecutionResult<TSignals>> {
   const finalText = await runAgent(
     args.agentId,
-    args.ctx.investmentRoot,
     args.promptGuide,
     args.input.contextBlocks,
   );
@@ -245,7 +241,6 @@ const informationCollectorDefinition: AgentDefinition<
       agentId: this.id,
       promptGuide: this.buildPromptGuide(),
       input,
-      ctx,
       schema: collectorSignalsSchema,
       artifactType: "report",
       buildSummaryJson: (signals) => ({
@@ -313,7 +308,6 @@ const macroPolicyDefinition: AgentDefinition<
       agentId: this.id,
       promptGuide: this.buildPromptGuide(),
       input,
-      ctx,
       schema: macroSignalsSchema,
       artifactType: "assessment",
       buildSummaryJson: (signals) => ({
@@ -370,7 +364,6 @@ const industryAnalystDefinition: AgentDefinition<
       agentId: this.id,
       promptGuide: this.buildPromptGuide(),
       input,
-      ctx,
       schema: industrySignalsSchema,
       artifactType: "assessment",
       buildSummaryJson: (signals) => ({
@@ -425,7 +418,6 @@ const companyAnalystDefinition: AgentDefinition<
       agentId: this.id,
       promptGuide: this.buildPromptGuide(),
       input,
-      ctx,
       schema: companySignalsSchema,
       artifactType: "assessment",
       buildSummaryJson: (signals) => ({
@@ -476,7 +468,6 @@ const bearCaseDefinition: AgentDefinition<
       agentId: this.id,
       promptGuide: this.buildPromptGuide(),
       input,
-      ctx,
       schema: emptySignalsSchema,
       artifactType: "report",
       buildSummaryJson: () => ({
@@ -522,7 +513,6 @@ const portfolioManagerDefinition: AgentDefinition<
       agentId: this.id,
       promptGuide: this.buildPromptGuide(),
       input,
-      ctx,
       schema: portfolioSignalsSchema,
       artifactType: "assessment",
       buildSummaryJson: (signals) => ({
@@ -575,7 +565,6 @@ const riskOfficerDefinition: AgentDefinition<
       agentId: this.id,
       promptGuide: this.buildPromptGuide(),
       input,
-      ctx,
       schema: riskSignalsSchema,
       artifactType: "assessment",
       buildSummaryJson: (signals) => ({
@@ -633,7 +622,6 @@ const chiefInvestmentOfficerDefinition: AgentDefinition<
       agentId: this.id,
       promptGuide: this.buildPromptGuide(),
       input,
-      ctx,
       schema: cioSignalsSchema,
       artifactType: "decision_packet",
       buildSummaryJson: (signals) => ({

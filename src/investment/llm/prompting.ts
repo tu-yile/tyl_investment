@@ -1,8 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { resolveInvestmentAgentsPath } from "../runtime/paths.js";
 import type { IndustryRecord, ThesisRecord } from "../types.js";
-import { buildAgentRuntimeHeader, codexModelOrDefault, runAgentTurn, stringifyPromptContext } from "./app-server-client.js";
+import { buildAgentRuntimeHeader, runAgentTurn, stringifyPromptContext } from "./app-server-client.js";
 
 // Prompting 层只负责“把 agent 文档 + 运行时上下文”拼成一次可执行 turn。
 // 这样 executors 文件只关心字段映射和业务校验。
@@ -11,8 +10,12 @@ export function nowIso(): string {
   return new Date().toISOString();
 }
 
-export async function extractAgentMarkdown(investmentRoot: string, agentId: string): Promise<string> {
-  return fs.readFile(resolveInvestmentAgentsPath(investmentRoot, `${agentId}.md`), "utf8");
+export function resolveStandaloneAgentsRoot(): string {
+  return path.join(process.cwd(), "investment", "agents");
+}
+
+export async function extractAgentMarkdown(agentId: string): Promise<string> {
+  return fs.readFile(path.join(resolveStandaloneAgentsRoot(), `${agentId}.md`), "utf8");
 }
 
 export function buildPrompt(agentId: string, responseContract: string, contextBlocks: string[]): string {
@@ -28,18 +31,16 @@ export function buildPrompt(agentId: string, responseContract: string, contextBl
 
 export async function runAgent(
   agentId: string,
-  investmentRoot: string,
   responseContract: string,
   contextBlocks: string[],
 ): Promise<string> {
-  const agentMarkdown = await extractAgentMarkdown(investmentRoot, agentId);
+  const agentMarkdown = await extractAgentMarkdown(agentId);
   const prompt = buildPrompt(agentId, responseContract, contextBlocks);
   const result = await runAgentTurn({
     agentId,
-    repoRoot: path.dirname(investmentRoot),
+    repoRoot: process.cwd(),
     baseInstructions: agentMarkdown,
     prompt,
-    model: codexModelOrDefault(),
   });
   return result.finalText;
 }

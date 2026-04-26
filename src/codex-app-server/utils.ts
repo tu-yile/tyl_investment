@@ -77,7 +77,6 @@ export function buildRunInputLogPayload(input: CodexRunInput & { workspace: stri
     webSearchMode: input.webSearchMode ?? null,
     skipGitRepoCheck: input.skipGitRepoCheck ?? null,
     personality: input.personality ?? null,
-    effort: input.effort ?? null,
     summary: input.summary ?? null,
     timeoutMs: input.timeoutMs ?? null,
     ephemeral: input.ephemeral ?? null,

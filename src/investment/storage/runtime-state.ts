@@ -1,4 +1,3 @@
-import path from "node:path";
 import { loadIndustries, loadRules, loadTheses } from "../lib/loaders.js";
 import type {
   IndustryRecord,
@@ -24,19 +23,18 @@ function holdingDaysFor(runDate: string, openedAt: string | null): number {
   return Math.max(0, Math.floor((current - opened) / 86_400_000));
 }
 
-function withStore<T>(investmentRoot: string, work: (store: InvestmentStore) => Promise<T> | T): Promise<T> {
+function withStore<T>(work: (store: InvestmentStore) => Promise<T> | T): Promise<T> {
   const store = new InvestmentStore({
-    dbPath: resolveInvestmentDbPath(path.dirname(investmentRoot)),
+    dbPath: resolveInvestmentDbPath(process.cwd()),
   });
   return Promise.resolve(work(store)).finally(() => store.close());
 }
 
 export async function loadRuntimePositions(
-  investmentRoot: string,
   runDate: string,
   portfolioId = DEFAULT_PORTFOLIO_ID,
 ): Promise<PositionRecord[]> {
-  return withStore(investmentRoot, (store) =>
+  return withStore((store) =>
     store.listRuntimePositions(portfolioId).map((row) => ({
       ticker: row.ticker,
       name: row.name,
@@ -51,12 +49,12 @@ export async function loadRuntimePositions(
   );
 }
 
-export async function loadRuntimeTheses(investmentRoot: string): Promise<ThesisRecord[]> {
-  return loadTheses(investmentRoot);
+export async function loadRuntimeTheses(): Promise<ThesisRecord[]> {
+  return loadTheses();
 }
 
-export async function loadRuntimeIndustries(investmentRoot: string): Promise<IndustryRecord[]> {
-  return loadIndustries(investmentRoot);
+export async function loadRuntimeIndustries(): Promise<IndustryRecord[]> {
+  return loadIndustries();
 }
 
 export function createDefaultMarketContext(asOf: string): MarketContext {
@@ -71,6 +69,6 @@ export function createDefaultMarketContext(asOf: string): MarketContext {
   };
 }
 
-export async function loadRuntimeRules(investmentRoot: string): Promise<RulesConfig> {
-  return loadRules(investmentRoot);
+export async function loadRuntimeRules(): Promise<RulesConfig> {
+  return loadRules();
 }

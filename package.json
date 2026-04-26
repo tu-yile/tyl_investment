@@ -20,6 +20,7 @@
     "dashboard": "npm run build && node dist/dashboard/server.js",
     "lint": "node -e \"console.log('No lint configured')\"",
     "investment": "npm run build && node dist/investment/index.js",
+    "investment:agent:run": "npm run build:server && node dist/investment/index.js agent:run",
     "investment:validate": "npm run build && node dist/investment/index.js validate-md",
     "investment:rebuild-state": "npm run build && node dist/investment/index.js rebuild-state",
     "investment:db:init-local": "zsh db/investment/init-local-db.sh",

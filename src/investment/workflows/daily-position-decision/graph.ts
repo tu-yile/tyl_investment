@@ -316,7 +316,6 @@ function buildFinalResult(
 function createInitialState(input: StartDailyRunInput): DailyRunGraphState {
   return {
     context: {
-      investmentRoot: input.investmentRoot,
       runDate: input.runDate,
       threadId: input.threadId,
       workflowId: "daily-position-decision",
@@ -342,7 +341,6 @@ function buildAgentContext(
 ) {
   return createAgentExecutionContext({
     agentId,
-    investmentRoot: state.context.investmentRoot,
     workflowId: state.context.workflowId,
     workflowRunId: runtimeContext.workflowRunId,
     runDate: state.context.runDate,
@@ -355,12 +353,11 @@ function buildAgentContext(
 
 function createDailyRunGraph(repoRoot: string, runtimeContext: WorkflowRuntimeContext) {
   async function startNode(state: DailyRunGraphState): Promise<Partial<DailyRunGraphState>> {
-    const root = state.context.investmentRoot;
     const [positions, theses, industries, rules] = await Promise.all([
-      loadRuntimePositions(root, state.context.runDate, DEFAULT_PORTFOLIO_ID),
-      loadRuntimeTheses(root),
-      loadRuntimeIndustries(root),
-      loadRuntimeRules(root),
+      loadRuntimePositions(state.context.runDate, DEFAULT_PORTFOLIO_ID),
+      loadRuntimeTheses(),
+      loadRuntimeIndustries(),
+      loadRuntimeRules(),
     ]);
     const marketContext = createDefaultMarketContext(state.context.runDate);
 
@@ -418,7 +415,7 @@ function createDailyRunGraph(repoRoot: string, runtimeContext: WorkflowRuntimeCo
       notToDo: [],
     };
 
-    const draftResult = await persistDailyDraft(state.context.investmentRoot, {
+    const draftResult = await persistDailyDraft({
       workflowRunId: runtimeContext.workflowRunId,
       runDate: state.context.runDate,
       portfolioId: DEFAULT_PORTFOLIO_ID,
@@ -479,7 +476,7 @@ function createDailyRunGraph(repoRoot: string, runtimeContext: WorkflowRuntimeCo
       throw new Error("Missing approval decision for state writeback.");
     }
 
-    const result = await applyApprovalWriteback(state.context.investmentRoot, {
+    const result = await applyApprovalWriteback({
       workflowRunId: runtimeContext.workflowRunId,
       runDate: state.context.runDate,
       decision: approvalDecision.decision,
@@ -560,7 +557,7 @@ export async function startDailyRunGraph(
   input: StartDailyRunInput,
   runtimeContext: WorkflowRuntimeContext,
 ): Promise<DailyRunGraphResult> {
-  const repoRoot = path.dirname(input.investmentRoot);
+  const repoRoot = process.cwd();
   const { graph, checkpointer } = createDailyRunGraph(repoRoot, runtimeContext);
   await checkpointer.getTuple(createGraphConfig(input.threadId)).catch(() => undefined);
   try {
@@ -584,7 +581,7 @@ export async function resumeDailyRunApproval(
   input: ResumeDailyRunInput,
   runtimeContext: WorkflowRuntimeContext,
 ): Promise<DailyRunGraphResult> {
-  const repoRoot = path.dirname(input.investmentRoot);
+  const repoRoot = process.cwd();
   const { graph } = createDailyRunGraph(repoRoot, runtimeContext);
   await assertAwaitingApproval(graph, input.threadId);
   const approvalDecision: ApprovalDecision = {

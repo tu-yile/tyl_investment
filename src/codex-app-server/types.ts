@@ -24,7 +24,6 @@ export type JsonRpcResponse = {
 
 export type JsonRpcMessage = JsonRpcRequest | JsonRpcNotification | JsonRpcResponse;
 
-export type CodexReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 
 export interface CodexAppServerLogger {
@@ -92,7 +91,7 @@ export interface CodexRunInput {
   webSearchMode?: string;
   skipGitRepoCheck?: boolean;
   personality?: string;
-  effort?: CodexReasoningEffort;
+  effort?: string;
   summary?: string;
   timeoutMs?: number;
   ephemeral?: boolean;
@@ -110,7 +109,6 @@ export interface CodexAppServerDefaults {
   webSearchMode?: string;
   skipGitRepoCheck?: boolean;
   personality?: string;
-  effort?: CodexReasoningEffort;
   summary?: string;
   timeoutMs?: number;
 }

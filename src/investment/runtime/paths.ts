@@ -30,8 +30,8 @@ export function resolveInvestmentEnvironment(value = process.env.INVESTMENT_ENV)
   throw new Error(`Invalid INVESTMENT_ENV: ${value}. Expected "prod" or "test".`);
 }
 
-export function resolveRepoRootFromInvestmentRoot(investmentRoot: string): string {
-  return path.dirname(investmentRoot);
+export function resolveRepoRoot(repoRoot = process.cwd()): string {
+  return repoRoot;
 }
 
 export function resolveInvestmentRuntimePathsForEnv(
@@ -68,16 +68,15 @@ export function resolveInvestmentRuntimePaths(repoRoot: string): InvestmentRunti
   return resolveInvestmentRuntimePathsForEnv(repoRoot, resolveInvestmentEnvironment());
 }
 
-export function resolveInvestmentRuntimePathsFromRoot(investmentRoot: string): InvestmentRuntimePaths {
-  return resolveInvestmentRuntimePaths(resolveRepoRootFromInvestmentRoot(investmentRoot));
+export function resolveCurrentInvestmentRuntimePaths(): InvestmentRuntimePaths {
+  return resolveInvestmentRuntimePaths(resolveRepoRoot());
 }
 
-export function resolveInvestmentOutputPath(investmentRoot: string, ...segments: string[]): string {
-  return path.join(resolveInvestmentRuntimePathsFromRoot(investmentRoot).outputRoot, ...segments);
+export function resolveInvestmentOutputPath(...segments: string[]): string {
+  return path.join(resolveCurrentInvestmentRuntimePaths().outputRoot, ...segments);
 }
 
 export function resolveAgentArtifactOutputPath(
-  investmentRoot: string,
   workflowId: string,
   runDate: string,
   threadId: string,
@@ -85,7 +84,6 @@ export function resolveAgentArtifactOutputPath(
   filename: string,
 ): string {
   return resolveInvestmentOutputPath(
-    investmentRoot,
     "runs",
     workflowId,
     runDate,
@@ -96,14 +94,14 @@ export function resolveAgentArtifactOutputPath(
   );
 }
 
-export function resolveInvestmentAgentsPath(investmentRoot: string, ...segments: string[]): string {
-  return path.join(resolveInvestmentRuntimePathsFromRoot(investmentRoot).agentsRoot, ...segments);
+export function resolveInvestmentAgentsPath(...segments: string[]): string {
+  return path.join(resolveCurrentInvestmentRuntimePaths().agentsRoot, ...segments);
 }
 
-export function resolveInvestmentConfigPath(investmentRoot: string, ...segments: string[]): string {
-  return path.join(resolveInvestmentRuntimePathsFromRoot(investmentRoot).configRoot, ...segments);
+export function resolveInvestmentConfigPath(...segments: string[]): string {
+  return path.join(resolveCurrentInvestmentRuntimePaths().configRoot, ...segments);
 }
 
-export function resolveInvestmentKnowledgePath(investmentRoot: string, ...segments: string[]): string {
-  return path.join(resolveInvestmentRuntimePathsFromRoot(investmentRoot).knowledgeRoot, ...segments);
+export function resolveInvestmentKnowledgePath(...segments: string[]): string {
+  return path.join(resolveCurrentInvestmentRuntimePaths().knowledgeRoot, ...segments);
 }

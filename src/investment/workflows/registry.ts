@@ -1,4 +1,3 @@
-import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { AgentId } from "../agents/types.js";
 import { validateRegisteredAgents } from "../agents/registry.js";
@@ -172,7 +171,6 @@ function normalizeTriggerType(value: string | undefined): WorkflowTriggerType {
 
 function createRuntimeContext(args: {
   repoRoot: string;
-  investmentRoot: string;
   workflowId: WorkflowId;
   workflowRunId: string;
   runDate: string;
@@ -247,11 +245,11 @@ export async function listWorkflows(): Promise<WorkflowCatalogItem[]> {
   return workflows;
 }
 
-export async function validateRegisteredWorkflows(investmentRoot: string): Promise<void> {
+export async function validateRegisteredWorkflows(): Promise<void> {
   for (const definition of workflowRegistry.values()) {
     validateWorkflowDefinition(definition);
   }
-  await validateRegisteredAgents(investmentRoot);
+  await validateRegisteredAgents();
 }
 
 export async function startWorkflow<TStartInput extends WorkflowStartInput>(
@@ -267,7 +265,7 @@ export async function startWorkflow<TStartInput extends WorkflowStartInput>(
     throw new Error(`workflow is registered but not implemented: ${definition.id}`);
   }
 
-  const repoRoot = path.dirname(request.investmentRoot);
+  const repoRoot = process.cwd();
   const workflowMetadata = createWorkflowMetadata(definition);
   const threadId = request.threadId ?? definition.buildThreadId(request);
   const triggerType = request.triggerType ?? "manual";
@@ -322,7 +320,6 @@ export async function startWorkflow<TStartInput extends WorkflowStartInput>(
       const artifactId = randomUUID();
       const reportSha256 = createHash("sha256").update(args.reportMd).digest("hex");
       const reportPath = resolveAgentArtifactOutputPath(
-        request.investmentRoot,
         request.workflowId,
         request.runDate,
         threadId,
@@ -350,7 +347,6 @@ export async function startWorkflow<TStartInput extends WorkflowStartInput>(
     };
     const runtimeContext = createRuntimeContext({
       repoRoot,
-      investmentRoot: request.investmentRoot,
       workflowId: request.workflowId,
       workflowRunId,
       runDate: request.runDate,
@@ -413,7 +409,7 @@ export async function resumeWorkflow<TResumeInput extends WorkflowResumeInput>(
     throw new Error(`workflow does not support resume: ${definition.id}`);
   }
 
-  const repoRoot = path.dirname(request.investmentRoot);
+  const repoRoot = process.cwd();
   const workflowMetadata = createWorkflowMetadata(definition);
   const [{ resolveInvestmentDbPath }, { InvestmentStore }] = await Promise.all([
     import("../storage/db-config.js"),
@@ -470,7 +466,6 @@ export async function resumeWorkflow<TResumeInput extends WorkflowResumeInput>(
       const artifactId = randomUUID();
       const reportSha256 = createHash("sha256").update(args.reportMd).digest("hex");
       const reportPath = resolveAgentArtifactOutputPath(
-        request.investmentRoot,
         request.workflowId,
         runDate,
         request.threadId,
@@ -499,7 +494,6 @@ export async function resumeWorkflow<TResumeInput extends WorkflowResumeInput>(
 
     const runtimeContext = createRuntimeContext({
       repoRoot,
-      investmentRoot: request.investmentRoot,
       workflowId: request.workflowId,
       workflowRunId: workflowRun.workflowRunId,
       runDate,

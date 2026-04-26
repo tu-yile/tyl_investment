@@ -1,0 +1,7 @@
+interface:
+  display_name: "Information Collector Delegation"
+  short_description: "Delegates fact collection to information-collector"
+  default_prompt: "Use $information-collector-delegation to prepare a context file and call information-collector via investment:agent:run."
+
+policy:
+  allow_implicit_invocation: true

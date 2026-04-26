@@ -120,7 +120,6 @@ export interface ApprovalDecision {
 }
 
 export interface DailyRunGraphContext {
-  investmentRoot: string;
   runDate: string;
   threadId: string;
   workflowId: "daily-position-decision";
@@ -205,13 +204,11 @@ export interface DailyRunGraphResult {
 }
 
 export interface StartDailyRunInput {
-  investmentRoot: string;
   runDate: string;
   threadId: string;
 }
 
 export interface ResumeDailyRunInput {
-  investmentRoot: string;
   runDate: string;
   threadId: string;
   decision: "approve" | "reject";

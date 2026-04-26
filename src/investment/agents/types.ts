@@ -58,7 +58,6 @@ export interface AgentExecutionResult<TSignals = undefined> {
 
 export interface AgentExecutionContext extends WorkflowAgentRunHooks {
   agentId: AgentId;
-  investmentRoot: string;
   workflowId: WorkflowId;
   workflowRunId: string;
   runDate: string;

@@ -25,7 +25,6 @@ function normalizeRunInput(input: CodexRunInput, defaults?: CodexAppServerDefaul
     webSearchMode: input.webSearchMode ?? defaults?.webSearchMode ?? "live",
     skipGitRepoCheck: input.skipGitRepoCheck ?? defaults?.skipGitRepoCheck ?? false,
     personality: input.personality ?? defaults?.personality ?? "pragmatic",
-    effort: input.effort ?? defaults?.effort,
     summary: input.summary ?? defaults?.summary ?? "none",
     timeoutMs: input.timeoutMs ?? defaults?.timeoutMs ?? 180000,
     ephemeral: input.ephemeral,

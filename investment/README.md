@@ -24,6 +24,7 @@
 
 ```bash
 npm run start -- workflow:list
+npm run investment:agent:run -- --agent=information-collector --context-file=tmp/context.md --output=tmp/information-collector.md
 npm run start -- workflow:run --workflow=daily-position-decision --date=2026-04-09
 npm run start -- workflow:resume --workflow=daily-position-decision --thread-id=daily-position-decision:2026-04-09 --decision=approve --reviewer=TuYile
 npm run investment:validate
@@ -41,6 +42,7 @@ npm run investment:test:cleanup
 - 从 SQLite 加载持仓、候选池、市场上下文、待办项和结构化 thesis / industry 运行态
 - 从 Markdown 加载行业知识正文、公司 thesis 正文和规则配置
 - 通过 workflow registry 启动和恢复 workflow
+- 可通过 `investment:agent:run` 单独调用任一业务 agent，并显式传入上下文文件或内联上下文
 - 通过 LangGraph 执行每日持仓决策流
 - 8 个业务 agent 节点通过 Codex app server 执行
 - 生成 `Position Update Card`

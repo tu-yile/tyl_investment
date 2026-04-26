@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import path from "node:path";
 import { todayInShanghai, writeText } from "./filesystem.js";
 import { parseMarkdownDocument, stringifyMarkdownDocument } from "./frontmatter.js";
 import { overwriteMarkdown } from "./loaders.js";
@@ -16,13 +15,9 @@ import { InvestmentStore } from "../storage/investment-store.js";
 import type { Frontmatter, RiskGateResult, ThesisRecord } from "../types.js";
 import type { OperationSheetItem } from "../workflows/daily-position-decision/types.js";
 
-function resolveRepoRoot(investmentRoot: string): string {
-  return path.dirname(investmentRoot);
-}
-
-function createStore(investmentRoot: string): InvestmentStore {
+function createStore(): InvestmentStore {
   return new InvestmentStore({
-    dbPath: resolveInvestmentDbPath(resolveRepoRoot(investmentRoot)),
+    dbPath: resolveInvestmentDbPath(process.cwd()),
   });
 }
 
@@ -168,7 +163,6 @@ function buildThesisDecisionLine(args: {
 }
 
 async function writeActionLog(args: {
-  investmentRoot: string;
   runDate: string;
   decision: string;
   reviewer: string;
@@ -176,7 +170,6 @@ async function writeActionLog(args: {
   sheetMarkdownPath: string;
 }): Promise<string> {
   const actionLogPath = resolveInvestmentOutputPath(
-    args.investmentRoot,
     "daily",
     args.runDate,
     `${args.runDate}-${args.decision}-action-log.md`,
@@ -203,12 +196,11 @@ async function writeActionLog(args: {
 }
 
 export async function rebuildPortfolioMemory(
-  investmentRoot: string,
   portfolioId = DEFAULT_PORTFOLIO_ID,
 ): Promise<string> {
   const [positions, theses] = await Promise.all([
-    loadRuntimePositions(investmentRoot, todayInShanghai(), portfolioId),
-    loadRuntimeTheses(investmentRoot),
+    loadRuntimePositions(todayInShanghai(), portfolioId),
+    loadRuntimeTheses(),
   ]);
 
   const thesisMap = new Map(theses.map((item) => [item.thesisId, item]));
@@ -223,7 +215,7 @@ export async function rebuildPortfolioMemory(
     ...theses.map((item) => `- ${item.companyName}(${item.ticker}): ${item.status}, updated ${item.lastUpdated}`),
   ].join("\n");
 
-  const pathname = resolveInvestmentOutputPath(investmentRoot, "state", "portfolio-memory.md");
+  const pathname = resolveInvestmentOutputPath("state", "portfolio-memory.md");
   await writeText(
     pathname,
     stringifyMarkdownDocument(
@@ -253,11 +245,9 @@ export interface PersistDailyDraftResult {
 }
 
 export async function persistDailyDraft(
-  investmentRoot: string,
   input: PersistDailyDraftInput,
 ): Promise<PersistDailyDraftResult> {
-  const dailyDir = resolveInvestmentOutputPath(investmentRoot, "daily", input.runDate);
-  const outputMarkdownPath = path.join(dailyDir, `${input.runDate}-daily-operation-sheet.md`);
+  const outputMarkdownPath = resolveInvestmentOutputPath("daily", input.runDate, `${input.runDate}-daily-operation-sheet.md`);
 
   const markdown = renderOperationSheetMarkdown({
     runDate: input.runDate,
@@ -291,12 +281,11 @@ export interface ApprovalWritebackResult {
 }
 
 export async function applyApprovalWriteback(
-  investmentRoot: string,
   input: ApprovalWritebackInput,
 ): Promise<ApprovalWritebackResult> {
   const reviewedAt = `${input.runDate}T09:00:00+08:00`;
   const portfolioId = input.portfolioId ?? DEFAULT_PORTFOLIO_ID;
-  const store = createStore(investmentRoot);
+  const store = createStore();
   const operationItems = normalizeOperationSheetItems({
     sheetItems: input.sheetItems,
   });
@@ -304,7 +293,7 @@ export async function applyApprovalWriteback(
 
   try {
     const outputMarkdownPath =
-      resolveInvestmentOutputPath(investmentRoot, "daily", input.runDate, `${input.runDate}-daily-operation-sheet.md`);
+      resolveInvestmentOutputPath("daily", input.runDate, `${input.runDate}-daily-operation-sheet.md`);
 
     await writeText(
       outputMarkdownPath,
@@ -323,7 +312,7 @@ export async function applyApprovalWriteback(
     if (input.decision === "approve") {
       const positions = store.listRuntimePositions(portfolioId);
       const positionMap = new Map(positions.map((item) => [item.ticker, item]));
-      const theses = await loadRuntimeTheses(investmentRoot);
+      const theses = await loadRuntimeTheses();
       const thesisMap = new Map(theses.map((item) => [item.ticker, item]));
 
       for (const action of requiredItems) {
@@ -386,14 +375,13 @@ export async function applyApprovalWriteback(
 
     }
     const actionLogPath = await writeActionLog({
-      investmentRoot,
       runDate: input.runDate,
       decision: input.decision,
       reviewer: input.reviewer,
       notes: input.notes,
       sheetMarkdownPath: outputMarkdownPath,
     });
-    const portfolioMemoryPath = await rebuildPortfolioMemory(investmentRoot, portfolioId);
+    const portfolioMemoryPath = await rebuildPortfolioMemory(portfolioId);
 
     return {
       sheetMarkdownPath: outputMarkdownPath,

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { readText } from "../lib/filesystem.js";
-import { resolveInvestmentRuntimePathsFromRoot } from "../runtime/paths.js";
+import { resolveCurrentInvestmentRuntimePaths } from "../runtime/paths.js";
 import {
   builtInAgentDefinitions,
 } from "../llm/agent-executors.js";
@@ -41,8 +41,8 @@ export function listAgents(): RegisteredAgentDescriptor[] {
   }));
 }
 
-export async function validateRegisteredAgents(investmentRoot: string): Promise<void> {
-  const runtimePaths = resolveInvestmentRuntimePathsFromRoot(investmentRoot);
+export async function validateRegisteredAgents(): Promise<void> {
+  const runtimePaths = resolveCurrentInvestmentRuntimePaths();
   for (const descriptor of listAgents()) {
     const pathname = path.join(runtimePaths.envRoot, descriptor.markdownPath);
     const markdown = await readText(pathname);

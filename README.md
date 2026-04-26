@@ -19,6 +19,7 @@ The Feishu/Codex gateway remains in-repo as a secondary subsystem that can be st
 - `npm run start -- workflow:list`
 - `npm run start -- workflow:run --workflow=daily-position-decision --date=2026-04-09`
 - `npm run start -- workflow:resume --workflow=daily-position-decision --thread-id=daily-position-decision:2026-04-09`
+- `npm run investment:agent:run -- --agent=information-collector --context-file=tmp/context.md --output=tmp/information-collector.md`
 - `npm run investment:validate`
 - `npm run investment:rebuild-state`
 - `npm run gateway` starts the Feishu gateway subsystem directly

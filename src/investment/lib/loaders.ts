@@ -54,9 +54,9 @@ export async function loadCollection(dirPath: string): Promise<MarkdownDocument[
   return docs;
 }
 
-export async function loadTheses(root: string): Promise<ThesisRecord[]> {
+export async function loadTheses(): Promise<ThesisRecord[]> {
   // 公司知识目录里可能以后还会出现别的 Markdown，这里先按 kind 显式过滤 thesis。
-  const docs = await loadCollection(resolveInvestmentKnowledgePath(root, "companies"));
+  const docs = await loadCollection(resolveInvestmentKnowledgePath("companies"));
   return docs
     .filter((doc) => doc.frontmatter.kind === "thesis")
     .map((doc) => ({
@@ -76,8 +76,8 @@ export async function loadTheses(root: string): Promise<ThesisRecord[]> {
     }));
 }
 
-export async function loadIndustries(root: string): Promise<IndustryRecord[]> {
-  const docs = await loadCollection(resolveInvestmentKnowledgePath(root, "industries"));
+export async function loadIndustries(): Promise<IndustryRecord[]> {
+  const docs = await loadCollection(resolveInvestmentKnowledgePath("industries"));
   return docs.map((doc) => ({
     industryId: getString(doc.frontmatter, "industry_id"),
     name: getString(doc.frontmatter, "name"),
@@ -90,11 +90,11 @@ export async function loadIndustries(root: string): Promise<IndustryRecord[]> {
   }));
 }
 
-export async function loadRules(root: string): Promise<RulesConfig> {
+export async function loadRules(): Promise<RulesConfig> {
   // 执行层只关心关键阈值，因此在这里把多个 Markdown 合并成一份运行时配置。
-  const confidence = await loadMarkdown(resolveInvestmentConfigPath(root, "confidence-rules.md"));
-  const risk = await loadMarkdown(resolveInvestmentConfigPath(root, "risk-rules.md"));
-  const strategy = await loadMarkdown(resolveInvestmentConfigPath(root, "strategy.md"));
+  const confidence = await loadMarkdown(resolveInvestmentConfigPath("confidence-rules.md"));
+  const risk = await loadMarkdown(resolveInvestmentConfigPath("risk-rules.md"));
+  const strategy = await loadMarkdown(resolveInvestmentConfigPath("strategy.md"));
 
   return {
     clearActionThreshold: getNumber(confidence.frontmatter, "clear_action_threshold"),
