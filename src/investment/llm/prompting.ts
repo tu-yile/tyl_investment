@@ -35,11 +35,20 @@ export async function runAgent(
   contextBlocks: string[],
 ): Promise<string> {
   const agentMarkdown = await extractAgentMarkdown(agentId);
+  return runAgentWithBaseInstructions(agentId, agentMarkdown, responseContract, contextBlocks);
+}
+
+export async function runAgentWithBaseInstructions(
+  agentId: string,
+  baseInstructions: string,
+  responseContract: string,
+  contextBlocks: string[],
+): Promise<string> {
   const prompt = buildPrompt(agentId, responseContract, contextBlocks);
   const result = await runAgentTurn({
     agentId,
     repoRoot: process.cwd(),
-    baseInstructions: agentMarkdown,
+    baseInstructions,
     prompt,
   });
   return result.finalText;

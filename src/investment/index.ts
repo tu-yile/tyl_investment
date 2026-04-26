@@ -19,6 +19,8 @@ function printUsage(): void {
   console.log("usage:");
   console.log("  node dist/index.js validate-md");
   console.log("  node dist/index.js agent:run --agent=information-collector --context-file=tmp/context.md");
+  console.log("  node dist/index.js agent:run --agent=industry-analyst --subject=power-equipment");
+  console.log("  node dist/index.js agent:run --agent=company-analyst --subject=300750");
   console.log("  node dist/index.js workflow:list");
   console.log("  node dist/index.js workflow:run --workflow=daily-position-decision --date=2026-04-09");
   console.log("  node dist/index.js workflow:resume --workflow=daily-position-decision --thread-id=daily-position-decision:2026-04-09");

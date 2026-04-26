@@ -12,7 +12,7 @@
   },
   "scripts": {
     "build": "npm run build:server && npm run build:console",
-    "build:server": "tsc -p tsconfig.json",
+    "build:server": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig.investment-agents.json",
     "build:console": "tsc -p src/dashboard/client/tsconfig.json --noEmit && vite build --config src/dashboard/client/vite.config.ts",
     "start": "npm run build && node dist/index.js",
     "dev": "npm run build && node dist/index.js",

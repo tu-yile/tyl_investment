@@ -1,13 +1,20 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { getAgentDefinition } from "../agents/registry.js";
 import type { AgentId } from "../agents/types.js";
 import { parseOption, parseOptions } from "../cli-options.js";
-import { runAgent } from "../llm/prompting.js";
-import { resolveStandaloneAgentsRoot } from "../llm/prompting.js";
+import { extractAgentMarkdown, resolveStandaloneAgentsRoot, runAgentWithBaseInstructions } from "../llm/prompting.js";
 
 interface MarkdownAgentDescriptor {
   id: string;
+}
+
+export interface StandaloneAgentRunSpec {
+  agentId: string;
+  baseInstructions: string;
+  responseContract: string;
+  contextBlocks: string[];
 }
 
 async function listMarkdownAgents(): Promise<MarkdownAgentDescriptor[]> {
@@ -48,8 +55,7 @@ function buildStandaloneAgentPromptGuide(agentId: string): string {
   }
 }
 
-export async function runAgentCommand(options: string[], repoRoot: string): Promise<void> {
-  const agentId = await parseAgentId(options);
+async function loadContextBlocks(options: string[], repoRoot: string): Promise<string[]> {
   const inlineContexts = parseOptions(options, "context");
   const contextFiles = await Promise.all(
     parseOptions(options, "context-file").map(async (value) => {
@@ -57,18 +63,74 @@ export async function runAgentCommand(options: string[], repoRoot: string): Prom
       return fs.readFile(pathname, "utf8");
     }),
   );
-  const contextBlocks = [...inlineContexts, ...contextFiles].map((block) => block.trim()).filter(Boolean);
-  const finalText = await runAgent(
+  return [...inlineContexts, ...contextFiles].map((block) => block.trim()).filter(Boolean);
+}
+
+async function loadGeneratedAgentModule<T>(repoRoot: string, moduleName: string): Promise<T> {
+  const modulePath = path.join(repoRoot, "dist", "investment", "agents", "gen-prompt", moduleName);
+  return import(pathToFileURL(modulePath).href) as Promise<T>;
+}
+
+export async function prepareAgentRunSpec(options: string[], repoRoot: string): Promise<StandaloneAgentRunSpec> {
+  const agentId = await parseAgentId(options);
+  const responseContract = buildStandaloneAgentPromptGuide(agentId);
+  const contextBlocks = await loadContextBlocks(options, repoRoot);
+  const subjectRef = parseOption(options, "subject");
+
+  if (agentId === "industry-analyst") {
+    if (!subjectRef) {
+      throw new Error("Missing --subject for --agent=industry-analyst");
+    }
+    const module = await loadGeneratedAgentModule<{
+      buildIndustryAnalystPrompt: (industryRef: string) => Promise<{ prompt: string }>;
+    }>(repoRoot, "industry-analyst.js");
+    const built = await module.buildIndustryAnalystPrompt(subjectRef);
+    return {
+      agentId,
+      baseInstructions: built.prompt,
+      responseContract,
+      contextBlocks,
+    };
+  }
+
+  if (agentId === "company-analyst") {
+    if (!subjectRef) {
+      throw new Error("Missing --subject for --agent=company-analyst");
+    }
+    const module = await loadGeneratedAgentModule<{
+      buildCompanyAnalystPrompt: (companyRef: string) => Promise<{ prompt: string }>;
+    }>(repoRoot, "company-analyst.js");
+    const built = await module.buildCompanyAnalystPrompt(subjectRef);
+    return {
+      agentId,
+      baseInstructions: built.prompt,
+      responseContract,
+      contextBlocks,
+    };
+  }
+
+  return {
     agentId,
-    buildStandaloneAgentPromptGuide(agentId),
+    baseInstructions: await extractAgentMarkdown(agentId),
+    responseContract,
     contextBlocks,
+  };
+}
+
+export async function runAgentCommand(options: string[], repoRoot: string): Promise<void> {
+  const spec = await prepareAgentRunSpec(options, repoRoot);
+  const finalText = await runAgentWithBaseInstructions(
+    spec.agentId,
+    spec.baseInstructions,
+    spec.responseContract,
+    spec.contextBlocks,
   );
   const outputPath = parseOption(options, "output");
   if (outputPath) {
     const pathname = path.isAbsolute(outputPath) ? outputPath : path.join(repoRoot, outputPath);
     await fs.mkdir(path.dirname(pathname), { recursive: true });
     await fs.writeFile(pathname, finalText, "utf8");
-    console.log(`agent: ${agentId}`);
+    console.log(`agent: ${spec.agentId}`);
     console.log(`output: ${pathname}`);
     return;
   }
