@@ -21,13 +21,10 @@
     "lint": "node -e \"console.log('No lint configured')\"",
     "investment": "npm run build && node dist/investment/index.js",
     "investment:agent:run": "npm run build:server && node dist/investment/index.js agent:run",
+    "investment:schedule:run": "npm run build:server && node dist/investment/index.js schedule:run",
     "investment:validate": "npm run build && node dist/investment/index.js validate-md",
     "investment:rebuild-state": "npm run build && node dist/investment/index.js rebuild-state",
     "investment:db:init-local": "zsh db/investment/init-local-db.sh",
-    "investment:test:init": "INVESTMENT_ENV=test npm run build && INVESTMENT_ENV=test node dist/investment/index.js init-test-runtime",
-    "investment:test:validate": "INVESTMENT_ENV=test npm run build && INVESTMENT_ENV=test node dist/investment/index.js validate-md",
-    "investment:test:rebuild-state": "INVESTMENT_ENV=test npm run build && INVESTMENT_ENV=test node dist/investment/index.js rebuild-state",
-    "investment:test:cleanup": "INVESTMENT_ENV=test npm run build && INVESTMENT_ENV=test node dist/investment/index.js cleanup-test-runtime",
     "test": "npm run build:server && node --test dist/**/*.test.js"
   },
   "repository": {
@@ -42,9 +39,6 @@
   },
   "homepage": "https://github.com/tu-yile/tyl_investment#readme",
   "dependencies": {
-    "@langchain/core": "^1.1.39",
-    "@langchain/langgraph": "^1.2.8",
-    "@langchain/langgraph-checkpoint-sqlite": "^1.0.1",
     "@larksuite/cli": "^1.0.4",
     "@openai/codex-sdk": "^0.118.0",
     "fast-xml-parser": "^5.5.11",

@@ -1,9 +1,17 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { getAgentDefinition } from "../agents/registry.js";
-import type { AgentId } from "../agents/types.js";
 import { parseOption, parseOptions } from "../cli-options.js";
+import {
+  buildBearCaseContract,
+  buildCioContract,
+  buildCompanyContract,
+  buildIndustryContract,
+  buildInformationCollectorContract,
+  buildMacroContract,
+  buildPortfolioContract,
+  buildRiskContract,
+} from "../llm/contracts.js";
 import { extractAgentMarkdown, resolveStandaloneAgentsRoot, runAgentWithBaseInstructions } from "../llm/prompting.js";
 
 interface MarkdownAgentDescriptor {
@@ -39,19 +47,34 @@ async function parseAgentId(options: string[]): Promise<string> {
 }
 
 function buildStandaloneAgentPromptGuide(agentId: string): string {
-  try {
-    return getAgentDefinition(agentId as AgentId).buildPromptGuide();
-  } catch {
-    return [
-      "Return exactly two top-level sections:",
-      "",
-      "## Analysis",
-      "Write the agent's analysis in Markdown.",
-      "",
-      "## Handoff",
-      "Return a fenced JSON block with any structured fields this standalone run should hand off.",
-      "If there are no structured fields, return an empty object.",
-    ].join("\n");
+  switch (agentId) {
+    case "information-collector":
+      return buildInformationCollectorContract();
+    case "macro-policy-analyst":
+      return buildMacroContract();
+    case "industry-analyst":
+      return buildIndustryContract();
+    case "company-analyst":
+      return buildCompanyContract();
+    case "bear-case-analyst":
+      return buildBearCaseContract();
+    case "portfolio-manager":
+      return buildPortfolioContract();
+    case "risk-officer":
+      return buildRiskContract();
+    case "chief-investment-officer":
+      return buildCioContract();
+    default:
+      return [
+        "Return exactly two top-level sections:",
+        "",
+        "## Analysis",
+        "Write the agent's analysis in Markdown.",
+        "",
+        "## Handoff",
+        "Return a fenced JSON block with any structured fields this standalone run should hand off.",
+        "If there are no structured fields, return an empty object.",
+      ].join("\n");
   }
 }
 

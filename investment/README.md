@@ -6,8 +6,8 @@
 
 - 配置、agent contract、知识库正文继续使用 Markdown
 - SQLite 负责运行态状态、审批闭环与历史审计
-- TypeScript 运行时负责读取 SQLite + Markdown、执行 workflow、生成导出产物
-- v1 聚焦每日持仓决策流，不自动下单，人工保留最终审批权
+- TypeScript 运行时负责读取 SQLite + Markdown、独立调用 agent、生成导出产物
+- v1 聚焦独立 agent 投研与人工审批，不自动下单
 
 ## 目录说明
 
@@ -16,64 +16,66 @@
 - `knowledge/industries/`: 行业知识库
 - `knowledge/companies/`: 公司 thesis 记忆
 - `output/`: 每日操作单与中间卡片
-- `runtime/test/`: test 环境隔离数据根目录
 
 ## 命令
 
 在仓库根目录执行：
 
 ```bash
-npm run start -- workflow:list
 npm run investment:agent:run -- --agent=information-collector --context-file=tmp/context.md --output=tmp/information-collector.md
 npm run investment:agent:run -- --agent=industry-analyst --subject=power-equipment --output=tmp/industry-analyst.md
 npm run investment:agent:run -- --agent=company-analyst --subject=300750 --output=tmp/company-analyst.md
-npm run start -- workflow:run --workflow=daily-position-decision --date=2026-04-09
-npm run start -- workflow:resume --workflow=daily-position-decision --thread-id=daily-position-decision:2026-04-09 --decision=approve --reviewer=TuYile
+npm run investment:schedule:run
 npm run investment:validate
 npm run investment:rebuild-state
 npm run investment:db:init-local
-npm run investment:test:init
-npm run investment:test:validate
-npm run investment:test:cleanup
 ```
+
+## 定时任务
+
+定时任务配置位于 `investment/config/schedules.json`。运行：
+
+```bash
+npm run investment:schedule:run
+```
+
+配置示例：
+
+```json
+{
+  "pollIntervalMs": 30000,
+  "runMissedOnStart": false,
+  "tasks": [
+    {
+      "id": "daily-information-collection",
+      "enabled": true,
+      "time": "08:45",
+      "agent": "information-collector",
+      "task": "收集过去一个交易日和盘前值得关注的市场、行业、公司与政策信息。",
+      "output": "{outputRoot}/scheduled/{date}/{taskId}.md"
+    }
+  ]
+}
+```
+
+- `time` 使用本机时区的 24 小时制 `HH:mm`。
+- `agent` 使用 `investment/agents/*.md` 中的 agent id。
+- `subject` 可用于 `industry-analyst` / `company-analyst`。
+- `context` 和 `contextFiles` 会作为额外上下文传给 agent。
+- `output` 支持 `{outputRoot}`、`{date}`、`{time}`、`{timestamp}`、`{taskId}`、`{agent}` 占位符。
+- `runMissedOnStart=false` 时，常驻进程启动前已经错过的当天任务不会补跑。
 
 ## 当前 v1 能力
 
 - 校验核心 Markdown schema
-- 校验 workflow registry 定义完整性
 - 从 SQLite 加载持仓、候选池、市场上下文、待办项和结构化 thesis / industry 运行态
 - 从 Markdown 加载行业知识正文、公司 thesis 正文和规则配置
-- 通过 workflow registry 启动和恢复 workflow
 - 可通过 `investment:agent:run` 单独调用任一业务 agent；其中行业和公司 agent 可直接通过统一的 `--subject` 装配对应知识库 prompt
-- 通过 LangGraph 执行每日持仓决策流
-- 8 个业务 agent 节点通过 Codex app server 执行
-- 生成 `Position Update Card`
+- 可通过 `investment:schedule:run` 在固定本地时间自动调用指定 agent 执行指定任务
+- 8 个业务 agent 通过 Codex app server 独立执行
 - 生成《今日持仓操作单》草稿并在审批节点中断
-- 通过 `workflow:resume --workflow=daily-position-decision` 恢复 graph 并完成状态写回
 - 通过 `## Analysis` + `## Handoff` 合约解析 agent 输出
-- 记录 workflow / agent / operation sheet / approval / execution 全链路运行审计到 SQLite
-
-## 当前 Workflow 体系
-
-当前 `src/investment/workflows/` 已成为 workflow 平台层，负责：
-
-- workflow definition / registry / runtime dispatch
-- workflow 元数据单点配置
-- workflow 级运行审计
-- daily workflow 的实现挂载
-
-当前 `src/investment/agents/` 与 `src/investment/llm/agent-executors.ts` 共同承担 agent 平台职责：
-
-- 8 个业务 agent 以 `AgentDefinition` 形式注册
-- workflow 节点通过统一的 `runRegisteredAgent(...)` 调用业务 agent
-- agent 执行前后会记录 `agent_runs`
-- handoff 解析、prompt contract 和本地 schema 守门仍复用现有 LLM 基础设施
-
-当前注册的 workflow：
-
-- `daily-position-decision`：`active`
-- `emergency-reassessment`：`planned`
-- `post-close-update`：`planned`
+- 记录 agent / operation sheet / approval / execution 运行审计到 SQLite
 
 ## 当前 Agent 体系
 
@@ -89,40 +91,9 @@ npm run investment:test:cleanup
 - `chief-investment-officer`
 
 说明：
-状态加载、状态写回、审批恢复和最终收尾不再作为 agent 定义，后续应以系统节点承接。
 
-## 当前每日流执行方式
-
-真实执行入口统一走 `workflow:run --workflow=daily-position-decision`。
-
-其运行态 state 已拆成两层：
-
-- `shared state`：SQLite 持仓、SQLite 候选池、规则、市场上下文、collection scope 等共享输入
-- `private state`：daily workflow 的中间分析结果、审批数据、输出产物与运行状态
-
-其 LangGraph 主链路为：
-
-- `start`
-- `information-collector`
-- `macro-policy-analyst`
-- `industry-analyst`
-- `company-analyst`
-- `bear-case-analyst`
-- `portfolio-manager`
-- `risk-officer`
-- `chief-investment-officer`
-- `human_approval`
-- `state_writeback`
-- `end`
-
-说明：
-
-- `workflow:run --workflow=daily-position-decision` 首次执行会生成草稿并停在 `human_approval`
-- `workflow:resume --workflow=daily-position-decision` 负责继续审批写回
-- 8 个业务节点不再走本地启发式主逻辑，而是通过 `codex app-server --listen stdio://` 做 LLM 执行
+- 8 个业务 agent 通过 `codex app-server --listen stdio://` 做 LLM 执行
 - agent prompt 以 `investment/agents/*.md` 为主，代码补充运行时上下文与 `## Handoff` 契约
-- workflow 配置与说明统一以 `src/investment/workflows/` 的 TS registry 为准
-- `INVESTMENT_ENV=test` 时，agents/config/knowledge/data/output 全部切到 `investment/runtime/test/`
 
 ## 数据存储演进
 

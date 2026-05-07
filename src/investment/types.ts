@@ -9,7 +9,7 @@ export interface MarkdownDocument<T extends Frontmatter = Frontmatter> {
   sections: Record<string, string>;
 }
 
-// PositionRecord 对应真实组合中的持仓快照，是每日决策流的核心输入。
+// PositionRecord 对应真实组合中的持仓快照，是 agent 分析的核心输入。
 export interface PositionRecord {
   ticker: string;
   name: string;
@@ -22,7 +22,7 @@ export interface PositionRecord {
   path: string;
 }
 
-// ThesisRecord 把公司判断结构化，便于 workflow 在每日重评时直接消费。
+// ThesisRecord 把公司判断结构化，便于 agent 在重评时直接消费。
 export interface ThesisRecord {
   thesisId: string;
   ticker: string;

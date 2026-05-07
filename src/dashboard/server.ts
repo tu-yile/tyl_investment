@@ -7,10 +7,9 @@ import { consoleConfig } from "#src/config/console-config.js";
 import { runtimePathsConfig } from "#src/config/runtime-paths-config.js";
 import { resolveInvestmentDbPath } from "#src/investment/storage/db-config.js";
 import { InvestmentStore } from "#src/investment/storage/investment-store.js";
-import { resolveLangGraphCheckpointPath } from "#src/investment/graph/checkpoint-config.js";
 
 type LogLevel = "info" | "warn" | "error";
-type SqliteDatabaseId = "gateway" | "investment" | "checkpoints";
+type SqliteDatabaseId = "gateway" | "investment";
 
 interface LogEntry {
   ts?: string;
@@ -695,12 +694,6 @@ function getDatabaseCatalog(): SqliteDatabaseInfo[] {
       name: "Investment Core",
       path: resolveInvestmentDbPath(repoRoot),
       description: "投资主业务数据",
-    },
-    {
-      id: "checkpoints",
-      name: "LangGraph Checkpoints",
-      path: resolveLangGraphCheckpointPath(repoRoot),
-      description: "工作流 checkpoint 与中间写入状态",
     },
   ];
 }

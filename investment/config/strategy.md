@@ -6,7 +6,7 @@ strategy_style: 主动多头
 holding_period: 中线
 decision_mode: advisory_only
 human_in_the_loop: true
-daily_workflow_id: daily-position-decision
+agent_invocation_mode: standalone
 replacement_score_gap: 0.12
 ---
 

@@ -2,7 +2,6 @@
 -- 它把当前 investment/ 目录中的示例持仓、thesis 和市场上下文导入 SQLite。
 
 DELETE FROM agent_runs;
-DELETE FROM workflow_runs;
 DELETE FROM positions;
 DELETE FROM portfolios;
 

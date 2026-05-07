@@ -23,21 +23,6 @@ function parseJson<T>(value: string | null): T | null {
   return JSON.parse(value) as T;
 }
 
-function toWorkflowRunRow(row: Record<string, unknown>): WorkflowRunRow {
-  return {
-    workflowRunId: String(row.workflow_run_id),
-    workflowId: String(row.workflow_id),
-    portfolioId: row.portfolio_id === null ? null : String(row.portfolio_id),
-    runDate: String(row.run_date),
-    triggerType: String(row.trigger_type),
-    status: String(row.status),
-    startedAt: String(row.started_at),
-    finishedAt: row.finished_at === null ? null : String(row.finished_at),
-    errorMessage: row.error_message === null ? null : String(row.error_message),
-    summaryJson: parseJson(row.summary_json as string | null),
-  };
-}
-
 export interface InvestmentStoreOptions {
   dbPath: string;
   schemaPath?: string;
@@ -95,32 +80,8 @@ export interface PositionRow {
   updatedAt: string;
 }
 
-export interface WorkflowRunCreate {
-  workflowRunId?: string;
-  workflowId: string;
-  portfolioId?: string | null;
-  runDate: string;
-  triggerType: string;
-  status?: string;
-  summaryJson?: unknown;
-}
-
-export interface WorkflowRunRow {
-  workflowRunId: string;
-  workflowId: string;
-  portfolioId: string | null;
-  runDate: string;
-  triggerType: string;
-  status: string;
-  startedAt: string;
-  finishedAt: string | null;
-  errorMessage: string | null;
-  summaryJson: unknown;
-}
-
 export interface AgentRunCreate {
   agentRunId?: string;
-  workflowRunId: string;
   agentId: string;
   scopeType?: string | null;
   scopeKey?: string | null;
@@ -131,7 +92,6 @@ export interface AgentRunCreate {
 export interface AgentArtifactCreate {
   artifactId?: string;
   agentRunId: string;
-  workflowRunId: string;
   agentId: string;
   artifactType: ArtifactType;
   scopeType?: ArtifactScopeType | null;
@@ -145,7 +105,6 @@ export interface AgentArtifactCreate {
 export interface AgentArtifactRow {
   artifactId: string;
   agentRunId: string;
-  workflowRunId: string;
   agentId: string;
   artifactType: ArtifactType;
   scopeType: ArtifactScopeType | null;
@@ -192,7 +151,7 @@ export class InvestmentStore {
     this.db.close();
   }
 
-  // 所有批量落库都尽量走事务，避免一次 workflow 只写进去半套状态。
+  // 所有批量落库都尽量走事务，避免一次运行只写进去半套状态。
   transaction<T>(work: () => T): T {
     this.db.exec("BEGIN");
     try {
@@ -213,6 +172,7 @@ export class InvestmentStore {
     this.addColumnIfMissing("positions", "industry_name", "TEXT");
     this.backfillPositionMetadataFromLegacyTables();
     this.rebuildPositionsTableIfNeeded();
+    this.rebuildAgentAuditTablesIfNeeded();
     this.pruneLegacySchema();
     this.db.exec(schemaSql);
   }
@@ -237,6 +197,7 @@ export class InvestmentStore {
       this.dropTableIfExists("operation_sheet_items");
       this.dropTableIfExists("approvals");
       this.dropTableIfExists("execution_results");
+      this.dropTableIfExists("workflow_runs");
       this.dropTableIfHasColumn("approvals", "operation_sheet_id");
       this.dropTableIfHasColumn("execution_results", "operation_sheet_item_id");
     } finally {
@@ -273,6 +234,14 @@ export class InvestmentStore {
     if (hasColumn) {
       this.db.exec(`ALTER TABLE ${tableName} DROP COLUMN ${columnName}`);
     }
+  }
+
+  private tableHasColumn(tableName: string, columnName: string): boolean {
+    if (!this.tableExists(tableName)) {
+      return false;
+    }
+    const columns = this.db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<Record<string, unknown>>;
+    return columns.some((column) => String(column.name) === columnName);
   }
 
   private addColumnIfMissing(tableName: string, columnName: string, columnDefinition: string): void {
@@ -397,6 +366,113 @@ export class InvestmentStore {
         FROM positions_legacy
       `);
       this.db.exec("DROP TABLE positions_legacy");
+    } finally {
+      this.db.exec("PRAGMA foreign_keys = ON;");
+    }
+  }
+
+  private rebuildAgentAuditTablesIfNeeded(): void {
+    const agentRunsNeedRebuild = this.tableHasColumn("agent_runs", "workflow_run_id");
+    const agentArtifactsNeedRebuild = this.tableHasColumn("agent_artifacts", "workflow_run_id");
+    if (!agentRunsNeedRebuild && !agentArtifactsNeedRebuild) {
+      return;
+    }
+
+    this.db.exec("PRAGMA foreign_keys = OFF;");
+    try {
+      if (agentRunsNeedRebuild) {
+        this.db.exec("ALTER TABLE agent_runs RENAME TO agent_runs_legacy");
+        this.db.exec(`
+          CREATE TABLE agent_runs (
+            agent_run_id TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL,
+            scope_type TEXT,
+            scope_key TEXT,
+            status TEXT NOT NULL,
+            input_summary_json TEXT,
+            output_summary_json TEXT,
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            error_message TEXT
+          )
+        `);
+        this.db.exec(`
+          INSERT INTO agent_runs (
+            agent_run_id,
+            agent_id,
+            scope_type,
+            scope_key,
+            status,
+            input_summary_json,
+            output_summary_json,
+            started_at,
+            finished_at,
+            error_message
+          )
+          SELECT
+            agent_run_id,
+            agent_id,
+            scope_type,
+            scope_key,
+            status,
+            input_summary_json,
+            output_summary_json,
+            started_at,
+            finished_at,
+            error_message
+          FROM agent_runs_legacy
+        `);
+        this.db.exec("DROP TABLE agent_runs_legacy");
+      }
+
+      if (agentArtifactsNeedRebuild) {
+        this.db.exec("ALTER TABLE agent_artifacts RENAME TO agent_artifacts_legacy");
+        this.db.exec(`
+          CREATE TABLE agent_artifacts (
+            artifact_id TEXT PRIMARY KEY,
+            agent_run_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            artifact_type TEXT NOT NULL,
+            scope_type TEXT,
+            scope_key TEXT,
+            report_path TEXT NOT NULL,
+            report_sha256 TEXT,
+            signals_json TEXT,
+            summary_json TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (agent_run_id) REFERENCES agent_runs(agent_run_id)
+          )
+        `);
+        this.db.exec(`
+          INSERT INTO agent_artifacts (
+            artifact_id,
+            agent_run_id,
+            agent_id,
+            artifact_type,
+            scope_type,
+            scope_key,
+            report_path,
+            report_sha256,
+            signals_json,
+            summary_json,
+            created_at
+          )
+          SELECT
+            artifact_id,
+            agent_run_id,
+            agent_id,
+            artifact_type,
+            scope_type,
+            scope_key,
+            report_path,
+            report_sha256,
+            signals_json,
+            summary_json,
+            created_at
+          FROM agent_artifacts_legacy
+        `);
+        this.db.exec("DROP TABLE agent_artifacts_legacy");
+      }
     } finally {
       this.db.exec("PRAGMA foreign_keys = ON;");
     }
@@ -592,135 +668,18 @@ export class InvestmentStore {
     }));
   }
 
-  createWorkflowRun(record: WorkflowRunCreate): string {
-    const workflowRunId = record.workflowRunId ?? randomUUID();
-    this.db
-      .prepare(`
-        INSERT INTO workflow_runs (
-          workflow_run_id, workflow_id, portfolio_id, run_date, trigger_type,
-          status, started_at, summary_json
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      .run(
-        workflowRunId,
-        record.workflowId,
-        record.portfolioId ?? null,
-        record.runDate,
-        record.triggerType,
-        record.status ?? "running",
-        nowIso(),
-        stringifyJson(record.summaryJson),
-      );
-    return workflowRunId;
-  }
-
-  updateWorkflowRunStatus(
-    workflowRunId: string,
-    status: string,
-    summaryJson?: unknown,
-  ): void {
-    // 非终态更新不要写 finished_at，
-    // 这样 awaiting_approval 等中间状态仍能明确表示“这个 run 还活着”。
-    this.db
-      .prepare(`
-        UPDATE workflow_runs
-        SET status = ?, summary_json = ?, error_message = NULL, finished_at = NULL
-        WHERE workflow_run_id = ?
-      `)
-      .run(
-        status,
-        stringifyJson(summaryJson),
-        workflowRunId,
-      );
-  }
-
-  finishWorkflowRun(args: {
-    workflowRunId: string;
-    status: string;
-    errorMessage?: string | null;
-    summaryJson?: unknown;
-  }): void {
-    this.db
-      .prepare(`
-        UPDATE workflow_runs
-        SET status = ?, finished_at = ?, error_message = ?, summary_json = ?
-        WHERE workflow_run_id = ?
-      `)
-      .run(
-        args.status,
-        nowIso(),
-        args.errorMessage ?? null,
-        stringifyJson(args.summaryJson),
-        args.workflowRunId,
-      );
-  }
-
-  getWorkflowRun(workflowRunId: string): WorkflowRunRow | null {
-    const row = this.db
-      .prepare(`
-        SELECT
-          workflow_run_id, workflow_id, portfolio_id, run_date, trigger_type, status,
-          started_at, finished_at, error_message, summary_json
-        FROM workflow_runs
-        WHERE workflow_run_id = ?
-      `)
-      .get(workflowRunId) as Record<string, unknown> | undefined;
-    if (!row) {
-      return null;
-    }
-    return toWorkflowRunRow(row);
-  }
-
-  findWorkflowRunByThread(args: {
-    workflowId: string;
-    threadId: string;
-    runDate?: string;
-  }): WorkflowRunRow | null {
-    // 这轮暂不改 schema，把 threadId 继续放在 summary_json 里。
-    // 查询时先按 workflow/runDate 收敛候选，再解析 JSON 匹配 threadId。
-    const clauses = ["workflow_id = ?"];
-    const params: string[] = [args.workflowId];
-    if (args.runDate) {
-      clauses.push("run_date = ?");
-      params.push(args.runDate);
-    }
-
-    const rows = this.db
-      .prepare(`
-        SELECT
-          workflow_run_id, workflow_id, portfolio_id, run_date, trigger_type, status,
-          started_at, finished_at, error_message, summary_json
-        FROM workflow_runs
-        WHERE ${clauses.join(" AND ")}
-        ORDER BY started_at DESC
-        LIMIT 50
-      `)
-      .all(...params) as Record<string, unknown>[];
-
-    for (const row of rows) {
-      const parsed = toWorkflowRunRow(row);
-      const summary = (parsed.summaryJson ?? {}) as { threadId?: unknown };
-      if (summary.threadId === args.threadId) {
-        return parsed;
-      }
-    }
-    return null;
-  }
-
   createAgentRun(record: AgentRunCreate): string {
     const agentRunId = record.agentRunId ?? randomUUID();
     this.db
       .prepare(`
         INSERT INTO agent_runs (
-          agent_run_id, workflow_run_id, agent_id, scope_type, scope_key,
+          agent_run_id, agent_id, scope_type, scope_key,
           status, input_summary_json, started_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         agentRunId,
-        record.workflowRunId,
         record.agentId,
         record.scopeType ?? null,
         record.scopeKey ?? null,
@@ -758,15 +717,14 @@ export class InvestmentStore {
     this.db
       .prepare(`
         INSERT INTO agent_artifacts (
-          artifact_id, agent_run_id, workflow_run_id, agent_id, artifact_type,
+          artifact_id, agent_run_id, agent_id, artifact_type,
           scope_type, scope_key, report_path, report_sha256, signals_json, summary_json, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         artifactId,
         record.agentRunId,
-        record.workflowRunId,
         record.agentId,
         record.artifactType,
         record.scopeType ?? null,
@@ -780,7 +738,6 @@ export class InvestmentStore {
     return {
       artifactId,
       agentRunId: record.agentRunId,
-      workflowRunId: record.workflowRunId,
       agentId: record.agentId,
       artifactType: record.artifactType,
       scopeType: record.scopeType ?? null,
@@ -793,21 +750,20 @@ export class InvestmentStore {
     };
   }
 
-  listAgentArtifactsByWorkflowRun(workflowRunId: string): AgentArtifactRow[] {
+  listAgentArtifactsByAgentRun(agentRunId: string): AgentArtifactRow[] {
     const rows = this.db
       .prepare(`
         SELECT
-          artifact_id, agent_run_id, workflow_run_id, agent_id, artifact_type,
+          artifact_id, agent_run_id, agent_id, artifact_type,
           scope_type, scope_key, report_path, report_sha256, signals_json, summary_json, created_at
         FROM agent_artifacts
-        WHERE workflow_run_id = ?
+        WHERE agent_run_id = ?
         ORDER BY created_at ASC, artifact_id ASC
       `)
-      .all(workflowRunId) as Array<Record<string, unknown>>;
+      .all(agentRunId) as Array<Record<string, unknown>>;
     return rows.map((row) => ({
       artifactId: String(row.artifact_id),
       agentRunId: String(row.agent_run_id),
-      workflowRunId: String(row.workflow_run_id),
       agentId: String(row.agent_id),
       artifactType: String(row.artifact_type) as ArtifactType,
       scopeType: row.scope_type === null ? null : (String(row.scope_type) as ArtifactScopeType),

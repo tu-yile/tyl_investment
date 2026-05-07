@@ -41,32 +41,10 @@ CREATE INDEX IF NOT EXISTS idx_positions_portfolio_status
 CREATE INDEX IF NOT EXISTS idx_positions_ticker
   ON positions (ticker);
 
--- 市场上下文快照。
--- 每日 workflow 会读取这张表，而不是只依赖单份 state 文件。
--- workflow 运行记录。
--- 用来回答某天某条流是否成功跑完，以及在哪个节点失败。
-CREATE TABLE IF NOT EXISTS workflow_runs (
-  workflow_run_id TEXT PRIMARY KEY,
-  workflow_id TEXT NOT NULL,
-  portfolio_id TEXT,
-  run_date TEXT NOT NULL,
-  trigger_type TEXT NOT NULL,
-  status TEXT NOT NULL,
-  started_at TEXT NOT NULL,
-  finished_at TEXT,
-  error_message TEXT,
-  summary_json TEXT,
-  FOREIGN KEY (portfolio_id) REFERENCES portfolios(portfolio_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow_date
-  ON workflow_runs (workflow_id, run_date);
-
 -- agent 运行记录。
 -- scope_type / scope_key 用来标记“针对哪只票、哪个行业、哪个组合”。
 CREATE TABLE IF NOT EXISTS agent_runs (
   agent_run_id TEXT PRIMARY KEY,
-  workflow_run_id TEXT NOT NULL,
   agent_id TEXT NOT NULL,
   scope_type TEXT,
   scope_key TEXT,
@@ -75,19 +53,17 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   output_summary_json TEXT,
   started_at TEXT NOT NULL,
   finished_at TEXT,
-  error_message TEXT,
-  FOREIGN KEY (workflow_run_id) REFERENCES workflow_runs(workflow_run_id)
+  error_message TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_agent_runs_workflow_run_id
-  ON agent_runs (workflow_run_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_agent_started
+  ON agent_runs (agent_id, started_at);
 
 -- agent 产物索引表。
 -- Markdown 报告落文件，数据库只保存路径、哈希和最小结构化信号。
 CREATE TABLE IF NOT EXISTS agent_artifacts (
   artifact_id TEXT PRIMARY KEY,
   agent_run_id TEXT NOT NULL,
-  workflow_run_id TEXT NOT NULL,
   agent_id TEXT NOT NULL,
   artifact_type TEXT NOT NULL,
   scope_type TEXT,
@@ -97,12 +73,11 @@ CREATE TABLE IF NOT EXISTS agent_artifacts (
   signals_json TEXT,
   summary_json TEXT,
   created_at TEXT NOT NULL,
-  FOREIGN KEY (agent_run_id) REFERENCES agent_runs(agent_run_id),
-  FOREIGN KEY (workflow_run_id) REFERENCES workflow_runs(workflow_run_id)
+  FOREIGN KEY (agent_run_id) REFERENCES agent_runs(agent_run_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_agent_artifacts_workflow_run
-  ON agent_artifacts (workflow_run_id, agent_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_agent_artifacts_agent_run
+  ON agent_artifacts (agent_run_id, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_agent_artifacts_scope
   ON agent_artifacts (scope_type, scope_key, created_at);

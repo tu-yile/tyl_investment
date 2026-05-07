@@ -6,20 +6,15 @@ The Feishu/Codex gateway remains in-repo as a secondary subsystem that can be st
 ## System Layout
 
 - Primary system: `investment/` Markdown-driven investment research engine
-- Workflow platform: `src/investment/workflows/` registry, runtime dispatch, and workflow implementations
-- Agent platform: `src/investment/agents/` registry/runtime + `src/investment/llm/agent-executors.ts` definitions
-- Daily workflow state now follows `shared state + workflow private state`
-- LangGraph remains the execution engine for the active daily workflow
+- Agent platform: standalone Markdown agents under `investment/agents/`
 - Agent execution: `src/investment/llm/` via Codex app server
 - Secondary subsystem: `src/gateway/` Feishu ingress and conversational control plane
 
 ## Primary Commands
 
 - `npm run start` starts the investment system CLI entrypoint
-- `npm run start -- workflow:list`
-- `npm run start -- workflow:run --workflow=daily-position-decision --date=2026-04-09`
-- `npm run start -- workflow:resume --workflow=daily-position-decision --thread-id=daily-position-decision:2026-04-09`
 - `npm run investment:agent:run -- --agent=information-collector --context-file=tmp/context.md --output=tmp/information-collector.md`
+- `npm run investment:schedule:run` starts the fixed-time scheduled agent runner
 - `npm run investment:validate`
 - `npm run investment:rebuild-state`
 - `npm run gateway` starts the Feishu gateway subsystem directly
@@ -38,11 +33,21 @@ npm install
 npm run start
 ```
 
-Run a daily investment workflow:
+Run an investment agent:
 
 ```bash
-npm run start -- workflow:run --workflow=daily-position-decision --date=2026-04-09
+npm run investment:agent:run -- --agent=information-collector --context-file=tmp/context.md --output=tmp/information-collector.md
 ```
+
+Start scheduled agent tasks:
+
+```bash
+npm run investment:schedule:run
+```
+
+The scheduler reads the current runtime config `schedules.json`. Each enabled task specifies a local
+`HH:mm` time, target `agent`, task brief, optional `subject`, optional extra context files, and an
+output template such as `{outputRoot}/scheduled/{date}/{taskId}.md`.
 
 Start the Feishu subsystem:
 
@@ -53,9 +58,7 @@ npm run start -- gateway
 ## Optional Environment Variables
 
 - Investment engine:
-  - `INVESTMENT_ENV`: runtime data environment (`prod` by default, `test` for isolated test assets)
   - `INVESTMENT_DB_PATH`: override `investment/data/investment.sqlite3`
-  - `INVESTMENT_LANGGRAPH_CHECKPOINT_DB_PATH`: override LangGraph checkpoint SQLite path
   - `INVESTMENT_CODEX_MODEL`: override model used by investment agents
   - `INVESTMENT_CODEX_REASONING_EFFORT`: override reasoning effort for investment agents
   - `INVESTMENT_CODEX_APP_SERVER_TIMEOUT_MS`: app server timeout in ms
@@ -86,7 +89,7 @@ npm run start -- gateway
 ## Project Layout
 
 - `src/index.ts` primary entrypoint, now routed to the investment engine
-- `src/investment/` investment CLI, workflow platform, agent runtime, storage
+- `src/investment/` investment CLI, standalone agent runner, storage
 - `investment/` environment-scoped runtime data and prompts
 - `db/investment/` shared SQLite schema, seed, and init scripts
 - `src/gateway/bootstrap.ts` gateway subsystem composition root

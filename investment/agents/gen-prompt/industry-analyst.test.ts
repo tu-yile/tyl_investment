@@ -10,13 +10,7 @@ import {
 
 test("industry analyst markdown files stay aligned and parse cleanly", async () => {
   const prodPath = path.join(process.cwd(), "investment/agents/industry-analyst.md");
-  const testPath = path.join(process.cwd(), "investment/runtime/test/agents/industry-analyst.md");
-  const [prodRaw, testRaw] = await Promise.all([
-    fs.readFile(prodPath, "utf8"),
-    fs.readFile(testPath, "utf8"),
-  ]);
-
-  assert.equal(prodRaw, testRaw);
+  const prodRaw = await fs.readFile(prodPath, "utf8");
 
   const prodDoc = parseMarkdownDocument(prodPath, prodRaw);
   assert.equal(prodDoc.frontmatter.agent_id, "industry-analyst");

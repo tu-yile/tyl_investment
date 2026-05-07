@@ -11,7 +11,7 @@ export interface LogHistoryResponse {
 }
 
 export interface SqliteDatabaseInfo {
-  id: "gateway" | "investment" | "checkpoints";
+  id: "gateway" | "investment";
   name: string;
   path: string;
   description: string;

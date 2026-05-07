@@ -1,7 +1,7 @@
 import path from "node:path";
+import { validateRegisteredAgents } from "../agents/registry.js";
 import { loadCollection } from "../lib/loaders.js";
 import { resolveCurrentInvestmentRuntimePaths } from "../runtime/paths.js";
-import { validateRegisteredWorkflows } from "../workflows/registry.js";
 
 export async function runValidateMarkdownCommand(): Promise<void> {
   const runtimePaths = resolveCurrentInvestmentRuntimePaths();
@@ -24,6 +24,6 @@ export async function runValidateMarkdownCommand(): Promise<void> {
     }
   }
 
-  await validateRegisteredWorkflows();
+  await validateRegisteredAgents();
   console.log(`validated markdown under ${runtimePaths.investmentRoot}`);
 }

@@ -13,7 +13,16 @@ import {
 } from "../storage/runtime-state.js";
 import { InvestmentStore } from "../storage/investment-store.js";
 import type { Frontmatter, RiskGateResult, ThesisRecord } from "../types.js";
-import type { OperationSheetItem } from "../workflows/daily-position-decision/types.js";
+
+export type SheetBucket = "required" | "optional" | "hold" | "watch";
+
+export interface OperationSheetItem {
+  bucket: SheetBucket;
+  ref?: string;
+  action?: string;
+  weightChange?: number;
+  confidence?: number;
+}
 
 function createStore(): InvestmentStore {
   return new InvestmentStore({
@@ -231,7 +240,6 @@ export async function rebuildPortfolioMemory(
 }
 
 export interface PersistDailyDraftInput {
-  workflowRunId: string;
   runDate: string;
   portfolioId?: string;
   marketAttitude: string;
@@ -262,7 +270,6 @@ export async function persistDailyDraft(
 }
 
 export interface ApprovalWritebackInput {
-  workflowRunId: string;
   runDate: string;
   decision: "approve" | "reject";
   reviewer: string;

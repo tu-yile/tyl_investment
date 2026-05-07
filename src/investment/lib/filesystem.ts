@@ -10,7 +10,7 @@ export async function readText(filePath: string): Promise<string> {
 }
 
 export async function writeText(filePath: string, content: string): Promise<void> {
-  // 所有写操作都自动补目录，避免 workflow 在首次运行时因为目录不存在失败。
+  // 所有写操作都自动补目录，避免首次运行时因为目录不存在失败。
   await ensureDir(path.dirname(filePath));
   await fs.writeFile(filePath, content, "utf8");
 }

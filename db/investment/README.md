@@ -35,7 +35,7 @@
 - 人工审批记录
 - 实际执行结果
 - 市场上下文快照
-- workflow run 和 agent run
+- agent run
 - 观察事项和待办项
 
 这些内容的特点是：
@@ -46,7 +46,7 @@
 
 ## 为什么不建议“全数据库”
 
-如果把行业知识库、agent contract、workflow 规则也全部放入数据库，短期看统一，长期会有两个明显问题：
+如果把行业知识库、agent contract 和运行规则也全部放入数据库，短期看统一，长期会有两个明显问题：
 
 1. 内容编辑体验明显变差
 2. 知识资产的版本演化会越来越依赖后台工具
@@ -66,13 +66,10 @@
 
 - `positions`
 
-### 每日 workflow 运行态
+### Agent 运行态
 
-- `workflow_runs`
 - `agent_runs`
-- `position_update_cards`
-- `candidate_assessments`
-- `risk_gate_results`
+- `agent_artifacts`
 
 ### 治理与闭环
 
@@ -81,7 +78,7 @@
 ## 建议的主键策略
 
 - 业务稳定标识优先用文本主键
-  例如：`ticker`、`industry_id`、`thesis_id`、`workflow_run_id`
+  例如：`ticker`、`industry_id`、`thesis_id`、`agent_run_id`
 - 明细表和审计表用自增主键
   例如：`position_update_card_id`、`approval_id`
 
@@ -111,7 +108,7 @@ v1 推荐继续使用 SQLite，原因：
 
 - Market context、risk snapshot、portfolio snapshot 进入 DB
 - Observation item 进入 DB
-- Workflow run / agent run 全链路落库
+- Agent run 全链路落库
 
 ### Phase 3
 
