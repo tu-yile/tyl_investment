@@ -53,6 +53,55 @@ test("findDueScheduledAgentTasks returns enabled tasks whose fixed time has pass
   );
 });
 
+test("findDueScheduledAgentTasks respects optional ISO weekdays", () => {
+  const config: ScheduledAgentTaskConfig = {
+    runMissedOnStart: true,
+    tasks: [
+      {
+        id: "weekday",
+        time: "08:45",
+        weekdays: [1, 2, 3, 4, 5],
+        agent: "information-collector",
+        task: "collect facts",
+      },
+      {
+        id: "daily",
+        time: "08:45",
+        agent: "risk-officer",
+        task: "risk check",
+      },
+    ],
+  };
+  const state = createInitialSchedulerRunState(config, new Date(2026, 4, 9, 9, 0, 0));
+
+  const due = findDueScheduledAgentTasks(config, state, new Date(2026, 4, 9, 9, 0, 0));
+
+  assert.deepEqual(
+    due.map((item) => item.task.id),
+    ["daily"],
+  );
+});
+
+test("createInitialSchedulerRunState only skips weekday-matching missed tasks", () => {
+  const config: ScheduledAgentTaskConfig = {
+    runMissedOnStart: false,
+    tasks: [
+      {
+        id: "weekday",
+        time: "08:45",
+        weekdays: [1, 2, 3, 4, 5],
+        agent: "information-collector",
+        task: "collect facts",
+      },
+    ],
+  };
+  const saturdayState = createInitialSchedulerRunState(config, new Date(2026, 4, 9, 9, 0, 0));
+  const mondayState = createInitialSchedulerRunState(config, new Date(2026, 4, 11, 9, 0, 0));
+
+  assert.equal(findDueScheduledAgentTasks(config, saturdayState, new Date(2026, 4, 9, 9, 0, 0)).length, 0);
+  assert.equal(findDueScheduledAgentTasks(config, mondayState, new Date(2026, 4, 11, 9, 0, 0)).length, 0);
+});
+
 test("createInitialSchedulerRunState can skip missed tasks on process start", () => {
   const config: ScheduledAgentTaskConfig = {
     runMissedOnStart: false,
@@ -147,5 +196,26 @@ test("validateScheduledAgentTaskConfig rejects duplicate ids and malformed tasks
         tasks: [{ id: "bad", time: "8:00", agent: "information-collector", task: "one" }],
       }),
     /Invalid schedule time/,
+  );
+  assert.throws(
+    () =>
+      validateScheduledAgentTaskConfig({
+        tasks: [{ id: "bad-weekdays", time: "08:00", weekdays: [], agent: "information-collector", task: "one" }],
+      }),
+    /weekdays must be a non-empty array/,
+  );
+  assert.throws(
+    () =>
+      validateScheduledAgentTaskConfig({
+        tasks: [{ id: "bad-weekday", time: "08:00", weekdays: [0], agent: "information-collector", task: "one" }],
+      }),
+    /weekdays must contain integers from 1 to 7/,
+  );
+  assert.throws(
+    () =>
+      validateScheduledAgentTaskConfig({
+        tasks: [{ id: "duplicate-weekday", time: "08:00", weekdays: [1, 1], agent: "information-collector", task: "one" }],
+      }),
+    /weekdays must not contain duplicates/,
   );
 });

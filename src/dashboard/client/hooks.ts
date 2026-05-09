@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  controlScheduler,
   createInvestmentPosition,
   fetchConsoleSummary,
   fetchInvestmentPositions,
   fetchLogHistory,
+  fetchSchedules,
+  runScheduledTask,
+  updateScheduledTask,
   updateInvestmentPosition,
 } from "./api";
 import type {
@@ -12,6 +16,9 @@ import type {
   InvestmentPosition,
   InvestmentPositionMutationResponse,
   LogEntry,
+  ScheduleTaskRunResponse,
+  SchedulerControlResponse,
+  SchedulesResponse,
   UpdateInvestmentPositionPayload,
 } from "./types";
 
@@ -218,5 +225,106 @@ export function useLogStream() {
     connectionLabel,
     connected,
     clearEntries: () => setEntries([]),
+  };
+}
+
+export function useSchedules() {
+  const [data, setData] = useState<SchedulesResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [savingTaskId, setSavingTaskId] = useState("");
+  const [runningTaskId, setRunningTaskId] = useState("");
+  const [controlling, setControlling] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const reload = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setLoading(true);
+    }
+    setError(null);
+    try {
+      setData(await fetchSchedules());
+    } catch (reloadError) {
+      setError(reloadError instanceof Error ? reloadError.message : "定时任务加载失败");
+    } finally {
+      if (!options?.silent) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void reload({ silent: true });
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [reload]);
+
+  const setTaskEnabled = useCallback(async (taskId: string, enabled: boolean): Promise<void> => {
+    setSavingTaskId(taskId);
+    setError(null);
+    setMessage(null);
+    try {
+      setData(await updateScheduledTask(taskId, enabled));
+      setMessage(enabled ? "任务已启用" : "任务已停用");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "任务状态更新失败");
+    } finally {
+      setSavingTaskId("");
+    }
+  }, []);
+
+  const runTask = useCallback(async (taskId: string): Promise<ScheduleTaskRunResponse | null> => {
+    setRunningTaskId(taskId);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await runScheduledTask(taskId);
+      setMessage("任务已开始运行");
+      void reload({ silent: true });
+      return response;
+    } catch (runError) {
+      setError(runError instanceof Error ? runError.message : "任务运行失败");
+      return null;
+    } finally {
+      setRunningTaskId("");
+    }
+  }, [reload]);
+
+  const controlRunner = useCallback(async (action: "start" | "stop" | "restart"): Promise<SchedulerControlResponse | null> => {
+    setControlling(action);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await controlScheduler(action);
+      setData((current) => (current ? { ...current, runner: response.runner } : current));
+      setMessage(action === "start" ? "调度器已启动" : action === "stop" ? "调度器已停止" : "调度器已重启");
+      void reload({ silent: true });
+      return response;
+    } catch (controlError) {
+      setError(controlError instanceof Error ? controlError.message : "调度器控制失败");
+      return null;
+    } finally {
+      setControlling("");
+    }
+  }, [reload]);
+
+  return {
+    data,
+    loading,
+    savingTaskId,
+    runningTaskId,
+    controlling,
+    error,
+    message,
+    reload,
+    setTaskEnabled,
+    runTask,
+    controlRunner,
+    clearMessage: useCallback(() => setMessage(null), []),
   };
 }

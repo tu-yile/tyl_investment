@@ -149,3 +149,86 @@ export interface GatewayThreadSummary {
 export interface GatewayThreadsResponse {
   threads: GatewayThreadSummary[];
 }
+
+export interface ScheduledAgentTask {
+  id: string;
+  enabled?: boolean;
+  time: string;
+  weekdays?: number[];
+  agent: string;
+  task: string;
+  subject?: string;
+  context?: string | string[];
+  contextFiles?: string[];
+  output?: string;
+}
+
+export interface ScheduledAgentTaskConfig {
+  pollIntervalMs?: number;
+  runMissedOnStart?: boolean;
+  tasks: ScheduledAgentTask[];
+}
+
+export interface SchedulerRunRecord {
+  runId: string;
+  taskId: string;
+  agent: string;
+  status: "running" | "completed" | "failed";
+  startedAt: string;
+  finishedAt: string | null;
+  outputPath: string | null;
+  error: string | null;
+}
+
+export interface SchedulerLockFile {
+  pid: number;
+  startedAt: string;
+  owner: string;
+  configPath: string;
+}
+
+export interface SchedulerStatusFile {
+  status: "starting" | "running" | "stopping" | "stopped" | "failed";
+  owner: string;
+  pid: number;
+  configPath: string;
+  startedAt: string;
+  lastHeartbeatAt: string | null;
+  lastTickAt: string | null;
+  lastRun: SchedulerRunRecord | null;
+  lastError: string | null;
+}
+
+export interface SchedulerStatusResponse {
+  status: "stopped" | "starting" | "running" | "stopping";
+  managed: boolean;
+  owner: string | null;
+  pid: number | null;
+  command: string;
+  startedAt: string | null;
+  lastHeartbeatAt: string | null;
+  lastTickAt: string | null;
+  lastRun: SchedulerRunRecord | null;
+  lastError: string | null;
+  configPath: string;
+  lock: SchedulerLockFile | null;
+  statusFile: SchedulerStatusFile | null;
+}
+
+export interface SchedulesResponse {
+  configPath: string;
+  config: ScheduledAgentTaskConfig;
+  tasks: ScheduledAgentTask[];
+  runner: SchedulerStatusResponse;
+  recentRuns: SchedulerRunRecord[];
+}
+
+export interface ScheduleTaskRunResponse {
+  ok: boolean;
+  run: SchedulerRunRecord;
+}
+
+export interface SchedulerControlResponse {
+  ok: boolean;
+  runner: SchedulerStatusResponse;
+}

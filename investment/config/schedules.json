@@ -6,6 +6,13 @@
       "id": "daily-information-collection",
       "enabled": false,
       "time": "08:45",
+      "weekdays": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
       "agent": "information-collector",
       "task": "收集过去一个交易日和盘前值得关注的 A 股市场、行业、公司与政策信息，输出可供其他 agent 继续分析的事实底稿。",
       "output": "{outputRoot}/scheduled/{date}/{taskId}.md"

@@ -22,6 +22,9 @@ export function ShellLayout({ children }: { children: ReactNode }) {
           <NavLink to="/sqlite" className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}>
             SQLite
           </NavLink>
+          <NavLink to="/calendar" className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}>
+            日历
+          </NavLink>
         </nav>
       </header>
       <main>{children}</main>

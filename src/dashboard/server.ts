@@ -5,6 +5,10 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { consoleConfig } from "#src/config/console-config.js";
 import { runtimePathsConfig } from "#src/config/runtime-paths-config.js";
+import { loadScheduledAgentTaskConfig } from "#src/investment/commands/schedule-run.js";
+import { runAgentCommand } from "#src/investment/commands/agent-run.js";
+import { buildAgentRunOptions, resolveTaskOutputPath, validateScheduledAgentTaskConfig, type ScheduledAgentTask, type ScheduledAgentTaskConfig } from "#src/investment/scheduler/scheduled-agent-tasks.js";
+import { isPidAlive, readSchedulerLock, readSchedulerStatus, type SchedulerLockFile, type SchedulerRunRecord, type SchedulerStatusFile } from "#src/investment/scheduler/runtime-state.js";
 import { resolveInvestmentDbPath } from "#src/investment/storage/db-config.js";
 import { InvestmentStore } from "#src/investment/storage/investment-store.js";
 
@@ -108,7 +112,37 @@ interface GatewayThreadSummary {
   runs: GatewayThreadRunItem[];
 }
 
+interface ScheduleTaskRunResponse {
+  ok: boolean;
+  run: SchedulerRunRecord;
+}
+
+interface SchedulesResponse {
+  configPath: string;
+  config: ScheduledAgentTaskConfig;
+  tasks: ScheduledAgentTask[];
+  runner: SchedulerStatusResponse;
+  recentRuns: SchedulerRunRecord[];
+}
+
+interface SchedulerStatusResponse {
+  status: SchedulerRuntimeStatus;
+  managed: boolean;
+  owner: string | null;
+  pid: number | null;
+  command: string;
+  startedAt: string | null;
+  lastHeartbeatAt: string | null;
+  lastTickAt: string | null;
+  lastRun: SchedulerRunRecord | null;
+  lastError: string | null;
+  configPath: string;
+  lock: SchedulerLockFile | null;
+  statusFile: SchedulerStatusFile | null;
+}
+
 type GatewayRuntimeStatus = "stopped" | "starting" | "running" | "stopping";
+type SchedulerRuntimeStatus = "stopped" | "starting" | "running" | "stopping";
 
 const DEFAULT_PORT = consoleConfig.port;
 const POLL_INTERVAL_MS = 800;
@@ -117,8 +151,20 @@ const DEFAULT_TABLE_PREVIEW_LIMIT = 50;
 const MAX_TABLE_PREVIEW_LIMIT = 100;
 const CLIENT_DIST_DIR = path.join(runtimePathsConfig.cwd, "dist/dashboard/client");
 const CLIENT_INDEX_PATH = path.join(CLIENT_DIST_DIR, "index.html");
-const CLIENT_ROUTE_PATHS = new Set(["/", "/gateway", "/gateway/", "/logs", "/logs/", "/sqlite", "/sqlite/"]);
+const CLIENT_ROUTE_PATHS = new Set([
+  "/",
+  "/gateway",
+  "/gateway/",
+  "/logs",
+  "/logs/",
+  "/sqlite",
+  "/sqlite/",
+  "/calendar",
+  "/calendar/",
+]);
 const GATEWAY_ENTRY_PATH = path.join(runtimePathsConfig.cwd, "dist/gateway/index.js");
+const SCHEDULER_ENTRY_PATH = path.join(runtimePathsConfig.cwd, "dist/investment/index.js");
+const SCHEDULER_CONFIG_PATH = path.join(runtimePathsConfig.cwd, "investment/config/schedules.json");
 const DEFAULT_DASHBOARD_PORTFOLIO_ID = process.env.DASHBOARD_PORTFOLIO_ID ?? "main-portfolio";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -241,6 +287,157 @@ class GatewayProcessController {
   }
 }
 
+class SchedulerProcessController {
+  private child: ChildProcessWithoutNullStreams | null = null;
+
+  private status: SchedulerRuntimeStatus = "stopped";
+
+  private manualStopRequested = false;
+
+  private restartTimer: NodeJS.Timeout | null = null;
+
+  private readonly command = `${process.execPath} ${path.relative(runtimePathsConfig.cwd, SCHEDULER_ENTRY_PATH)} schedule:run --owner=dashboard`;
+
+  async getStatus(recentRuns: SchedulerRunRecord[]): Promise<SchedulerStatusResponse> {
+    const [lock, statusFile] = await Promise.all([
+      readSchedulerLock(runtimePathsConfig.cwd),
+      readSchedulerStatus(runtimePathsConfig.cwd),
+    ]);
+    const activeLock = lock && isPidAlive(lock.pid) ? lock : null;
+    const managed = this.child !== null;
+    const status = this.status !== "stopped" ? this.status : activeLock ? "running" : "stopped";
+
+    return {
+      status,
+      managed,
+      owner: activeLock?.owner ?? statusFile?.owner ?? null,
+      pid: activeLock?.pid ?? statusFile?.pid ?? null,
+      command: this.command,
+      startedAt: activeLock?.startedAt ?? statusFile?.startedAt ?? null,
+      lastHeartbeatAt: statusFile?.lastHeartbeatAt ?? null,
+      lastTickAt: statusFile?.lastTickAt ?? null,
+      lastRun: statusFile?.lastRun ?? recentRuns[0] ?? null,
+      lastError: statusFile?.lastError ?? null,
+      configPath: statusFile?.configPath ?? SCHEDULER_CONFIG_PATH,
+      lock: activeLock,
+      statusFile,
+    };
+  }
+
+  async start(): Promise<void> {
+    if (this.status === "running" || this.status === "starting") {
+      return;
+    }
+    if (!fs.existsSync(SCHEDULER_ENTRY_PATH)) {
+      throw new Error(`Scheduler entry build missing: ${SCHEDULER_ENTRY_PATH}`);
+    }
+    const lock = await readSchedulerLock(runtimePathsConfig.cwd);
+    if (lock && isPidAlive(lock.pid)) {
+      throw new Error(`Scheduler already running: pid=${lock.pid}, owner=${lock.owner}`);
+    }
+
+    this.manualStopRequested = false;
+    this.status = "starting";
+    this.clearRestartTimer();
+
+    const child = spawn(process.execPath, [SCHEDULER_ENTRY_PATH, "schedule:run", "--owner=dashboard"], {
+      cwd: runtimePathsConfig.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        SCHEDULER_RUNNER_OWNER: "dashboard",
+      },
+    });
+
+    this.child = child;
+    child.stdout.on("data", (chunk) => process.stdout.write(chunk));
+    child.stderr.on("data", (chunk) => process.stderr.write(chunk));
+    child.once("spawn", () => {
+      this.status = "running";
+    });
+    child.once("error", (error) => {
+      this.status = "stopped";
+      this.child = null;
+      if (!this.manualStopRequested) {
+        this.scheduleRestart(`Scheduler start failed: ${error.message}`);
+      }
+    });
+    child.once("exit", (code, signal) => {
+      this.child = null;
+      this.status = "stopped";
+      if (!this.manualStopRequested) {
+        this.scheduleRestart(`Scheduler exited unexpectedly: code=${code ?? "null"}, signal=${signal ?? "null"}`);
+      }
+    });
+  }
+
+  async stop(): Promise<void> {
+    this.manualStopRequested = true;
+    this.clearRestartTimer();
+    if (!this.child || this.status === "stopped" || this.status === "stopping") {
+      const lock = await readSchedulerLock(runtimePathsConfig.cwd);
+      if (lock && isPidAlive(lock.pid)) {
+        throw new Error(`Scheduler is not managed by this dashboard process: pid=${lock.pid}, owner=${lock.owner}`);
+      }
+      return;
+    }
+
+    const activeChild = this.child;
+    this.status = "stopping";
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve();
+      };
+      activeChild.once("exit", finish);
+      activeChild.kill("SIGTERM");
+      setTimeout(() => {
+        if (activeChild.exitCode === null && activeChild.signalCode === null) {
+          activeChild.kill("SIGKILL");
+        }
+      }, 5_000);
+      setTimeout(finish, 7_000);
+    });
+    this.status = "stopped";
+    this.child = null;
+  }
+
+  async restart(): Promise<void> {
+    await this.stop();
+    this.manualStopRequested = false;
+    await this.start();
+  }
+
+  shutdown(): void {
+    this.manualStopRequested = true;
+    this.clearRestartTimer();
+    if (this.child) {
+      this.child.kill("SIGTERM");
+    }
+  }
+
+  private scheduleRestart(reason: string): void {
+    console.error(reason);
+    this.clearRestartTimer();
+    this.restartTimer = setTimeout(() => {
+      void this.start().catch((error: unknown) => {
+        console.error("Scheduler restart failed:", error);
+      });
+    }, 3_000);
+  }
+
+  private clearRestartTimer(): void {
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+  }
+}
+
 function readJsonBody(request: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -284,6 +481,98 @@ function text(response: http.ServerResponse, statusCode: number, body: string): 
     "Cache-Control": "no-store",
   });
   response.end(body);
+}
+
+async function loadDashboardScheduleConfig(): Promise<ScheduledAgentTaskConfig> {
+  return loadScheduledAgentTaskConfig(SCHEDULER_CONFIG_PATH);
+}
+
+async function writeDashboardScheduleConfig(config: ScheduledAgentTaskConfig): Promise<void> {
+  validateScheduledAgentTaskConfig(config);
+  await fs.promises.writeFile(SCHEDULER_CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+}
+
+function getScheduleTask(config: ScheduledAgentTaskConfig, taskId: string): ScheduledAgentTask {
+  const task = config.tasks.find((item) => item.id === taskId);
+  if (!task) {
+    throw new Error(`Scheduled task not found: ${taskId}`);
+  }
+  return task;
+}
+
+async function updateScheduleTaskEnabled(taskId: string, enabled: boolean): Promise<ScheduledAgentTaskConfig> {
+  const config = await loadDashboardScheduleConfig();
+  getScheduleTask(config, taskId);
+  const updatedConfig: ScheduledAgentTaskConfig = {
+    ...config,
+    tasks: config.tasks.map((task) => (task.id === taskId ? { ...task, enabled } : task)),
+  };
+  await writeDashboardScheduleConfig(updatedConfig);
+  return updatedConfig;
+}
+
+function rememberScheduleRun(recentRuns: SchedulerRunRecord[], run: SchedulerRunRecord): void {
+  const index = recentRuns.findIndex((item) => item.runId === run.runId);
+  if (index >= 0) {
+    recentRuns.splice(index, 1, run);
+  } else {
+    recentRuns.unshift(run);
+  }
+  if (recentRuns.length > 20) {
+    recentRuns.splice(20);
+  }
+}
+
+function createManualScheduleRun(task: ScheduledAgentTask, outputPath: string | null): SchedulerRunRecord {
+  const startedAt = new Date().toISOString();
+  return {
+    runId: `${task.id}-${Date.now()}`,
+    taskId: task.id,
+    agent: task.agent,
+    status: "running",
+    startedAt,
+    finishedAt: null,
+    outputPath,
+    error: null,
+  };
+}
+
+async function triggerManualScheduleRun(
+  taskId: string,
+  runningManualTasks: Set<string>,
+  recentRuns: SchedulerRunRecord[],
+): Promise<ScheduleTaskRunResponse> {
+  if (runningManualTasks.has(taskId)) {
+    throw new Error(`Scheduled task is already running: ${taskId}`);
+  }
+  const config = await loadDashboardScheduleConfig();
+  const task = getScheduleTask(config, taskId);
+  const now = new Date();
+  const outputPath = resolveTaskOutputPath(task, runtimePathsConfig.cwd, now) ?? null;
+  const run = createManualScheduleRun(task, outputPath);
+  runningManualTasks.add(taskId);
+  rememberScheduleRun(recentRuns, run);
+
+  void runAgentCommand(buildAgentRunOptions(task, runtimePathsConfig.cwd, now), runtimePathsConfig.cwd)
+    .then(() => {
+      run.status = "completed";
+      run.finishedAt = new Date().toISOString();
+      rememberScheduleRun(recentRuns, run);
+    })
+    .catch((error: unknown) => {
+      run.status = "failed";
+      run.finishedAt = new Date().toISOString();
+      run.error = error instanceof Error ? error.message : String(error);
+      rememberScheduleRun(recentRuns, run);
+    })
+    .finally(() => {
+      runningManualTasks.delete(taskId);
+    });
+
+  return {
+    ok: true,
+    run,
+  };
 }
 
 function tailLines(filePath: string, count: number): string[] {
@@ -987,6 +1276,9 @@ export async function startGatewayLogViewer(): Promise<void> {
   let offset = fs.existsSync(logPath) ? fs.statSync(logPath).size : 0;
   const clients = new Map<number, SseClient>();
   const gatewayController = new GatewayProcessController();
+  const schedulerController = new SchedulerProcessController();
+  const recentScheduleRuns: SchedulerRunRecord[] = [];
+  const runningManualTasks = new Set<string>();
 
   const server = http.createServer(async (request, response) => {
     const requestUrl = new URL(request.url || "/", `http://${request.headers.host || "127.0.0.1"}`);
@@ -1001,6 +1293,105 @@ export async function startGatewayLogViewer(): Promise<void> {
 
     if (requestUrl.pathname === "/api/console/summary") {
       json(response, 200, collectConsoleSummary(logPath));
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/schedules") {
+      if (request.method !== "GET") {
+        json(response, 405, { error: "Method not allowed" });
+        return;
+      }
+      try {
+        const config = await loadDashboardScheduleConfig();
+        json(response, 200, {
+          configPath: SCHEDULER_CONFIG_PATH,
+          config,
+          tasks: config.tasks,
+          runner: await schedulerController.getStatus(recentScheduleRuns),
+          recentRuns: recentScheduleRuns,
+        } satisfies SchedulesResponse);
+      } catch (error: unknown) {
+        json(response, 400, { error: error instanceof Error ? error.message : "Failed to load schedules" });
+      }
+      return;
+    }
+
+    if (requestUrl.pathname.startsWith("/api/schedules/tasks/")) {
+      const suffix = requestUrl.pathname.slice("/api/schedules/tasks/".length);
+      const segments = suffix.split("/").filter(Boolean);
+      const taskId = segments[0] ? decodeURIComponent(segments[0]) : "";
+      if (!taskId) {
+        json(response, 400, { error: "Missing task id" });
+        return;
+      }
+
+      if (segments.length === 1 && request.method === "PATCH") {
+        try {
+          const payload = (await readJsonBody(request)) as { enabled?: unknown };
+          if (typeof payload.enabled !== "boolean") {
+            json(response, 400, { error: "Expected boolean enabled value" });
+            return;
+          }
+          const config = await updateScheduleTaskEnabled(taskId, payload.enabled);
+          json(response, 200, {
+            configPath: SCHEDULER_CONFIG_PATH,
+            config,
+            tasks: config.tasks,
+            runner: await schedulerController.getStatus(recentScheduleRuns),
+            recentRuns: recentScheduleRuns,
+          } satisfies SchedulesResponse);
+        } catch (error: unknown) {
+          json(response, 400, { error: error instanceof Error ? error.message : "Failed to update schedule task" });
+        }
+        return;
+      }
+
+      if (segments.length === 2 && segments[1] === "run" && request.method === "POST") {
+        if (runningManualTasks.has(taskId)) {
+          json(response, 409, { error: `Scheduled task is already running: ${taskId}` });
+          return;
+        }
+        try {
+          json(response, 200, await triggerManualScheduleRun(taskId, runningManualTasks, recentScheduleRuns));
+        } catch (error: unknown) {
+          json(response, 400, { error: error instanceof Error ? error.message : "Failed to run schedule task" });
+        }
+        return;
+      }
+
+      json(response, 405, { error: "Method not allowed" });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/scheduler/control") {
+      if (request.method !== "POST") {
+        json(response, 405, { error: "Method not allowed" });
+        return;
+      }
+
+      try {
+        const payload = (await readJsonBody(request)) as { action?: "start" | "stop" | "restart" };
+        switch (payload.action) {
+          case "start":
+            await schedulerController.start();
+            break;
+          case "stop":
+            await schedulerController.stop();
+            break;
+          case "restart":
+            await schedulerController.restart();
+            break;
+          default:
+            json(response, 400, { error: "Unknown scheduler action" });
+            return;
+        }
+        json(response, 200, {
+          ok: true,
+          runner: await schedulerController.getStatus(recentScheduleRuns),
+        });
+      } catch (error: unknown) {
+        json(response, 400, { error: error instanceof Error ? error.message : "Scheduler control failed" });
+      }
       return;
     }
 
@@ -1197,6 +1588,7 @@ export async function startGatewayLogViewer(): Promise<void> {
   server.on("close", () => {
     clearInterval(pollTimer);
     void gatewayController.stop();
+    schedulerController.shutdown();
   });
 
   await new Promise<void>((resolve, reject) => {

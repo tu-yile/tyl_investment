@@ -8,6 +8,9 @@ import type {
   InvestmentPositionMutationResponse,
   InvestmentPositionsResponse,
   LogHistoryResponse,
+  ScheduleTaskRunResponse,
+  SchedulerControlResponse,
+  SchedulesResponse,
   SqliteRowsResponse,
   SqliteTablesResponse,
   UpdateInvestmentPositionPayload,
@@ -57,6 +60,36 @@ export function updateInvestmentPosition(
 
 export function fetchLogHistory(): Promise<LogHistoryResponse> {
   return fetchJson<LogHistoryResponse>("/api/history");
+}
+
+export function fetchSchedules(): Promise<SchedulesResponse> {
+  return fetchJson<SchedulesResponse>("/api/schedules");
+}
+
+export function updateScheduledTask(taskId: string, enabled: boolean): Promise<SchedulesResponse> {
+  return fetchJson<SchedulesResponse>(`/api/schedules/tasks/${encodeURIComponent(taskId)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export function runScheduledTask(taskId: string): Promise<ScheduleTaskRunResponse> {
+  return fetchJson<ScheduleTaskRunResponse>(`/api/schedules/tasks/${encodeURIComponent(taskId)}/run`, {
+    method: "POST",
+  });
+}
+
+export function controlScheduler(action: "start" | "stop" | "restart"): Promise<SchedulerControlResponse> {
+  return fetchJson<SchedulerControlResponse>("/api/scheduler/control", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action }),
+  });
 }
 
 export function fetchSqliteTables(databaseId: string): Promise<SqliteTablesResponse> {

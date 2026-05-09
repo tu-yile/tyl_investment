@@ -5,6 +5,7 @@ export interface ScheduledAgentTask {
   id: string;
   enabled?: boolean;
   time: string;
+  weekdays?: number[];
   agent: string;
   task: string;
   subject?: string;
@@ -126,7 +127,7 @@ export function createInitialSchedulerRunState(
     if (task.enabled === false) {
       continue;
     }
-    if (isPastScheduledTime(task, now)) {
+    if (isScheduledForDate(task, now) && isPastScheduledTime(task, now)) {
       lastRunDateByTaskId.set(task.id, today);
     }
   }
@@ -141,6 +142,7 @@ export function findDueScheduledAgentTasks(
   const today = formatLocalDate(now);
   return config.tasks
     .filter((task) => task.enabled !== false)
+    .filter((task) => isScheduledForDate(task, now))
     .filter((task) => state.lastRunDateByTaskId.get(task.id) !== today)
     .filter((task) => isPastScheduledTime(task, now))
     .map((task) => ({ task, runDate: today }));
@@ -170,7 +172,39 @@ export function validateScheduledAgentTaskConfig(config: ScheduledAgentTaskConfi
     if (!task.task || task.task.trim().length === 0) {
       throw new Error(`Scheduled task "${task.id}" is missing task.`);
     }
+    validateWeekdays(task.id, task.weekdays);
     parseDailyTime(task.time);
+  }
+}
+
+export function getIsoWeekday(date: Date): number {
+  const day = date.getDay();
+  return day === 0 ? 7 : day;
+}
+
+export function isScheduledForDate(task: ScheduledAgentTask, date: Date): boolean {
+  if (!task.weekdays) {
+    return true;
+  }
+  return task.weekdays.includes(getIsoWeekday(date));
+}
+
+function validateWeekdays(taskId: string, weekdays: number[] | undefined): void {
+  if (weekdays === undefined) {
+    return;
+  }
+  if (!Array.isArray(weekdays) || weekdays.length === 0) {
+    throw new Error(`Scheduled task "${taskId}" weekdays must be a non-empty array.`);
+  }
+  const seen = new Set<number>();
+  for (const weekday of weekdays) {
+    if (!Number.isInteger(weekday) || weekday < 1 || weekday > 7) {
+      throw new Error(`Scheduled task "${taskId}" weekdays must contain integers from 1 to 7.`);
+    }
+    if (seen.has(weekday)) {
+      throw new Error(`Scheduled task "${taskId}" weekdays must not contain duplicates.`);
+    }
+    seen.add(weekday);
   }
 }
 
