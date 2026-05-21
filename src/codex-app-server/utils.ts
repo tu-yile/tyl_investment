@@ -41,7 +41,7 @@ export function buildProgressSnapshot({ activity, partialText }: { activity: str
 }
 
 export function resolveExecutable(defaults?: CodexAppServerDefaults): string {
-  return defaults?.executable || process.env.INVESTMENT_CODEX_CLI_PATH || process.env.CODEX_PATH || "codex";
+  return defaults?.executable || process.env.CODEX_PATH || "codex";
 }
 
 export function normalizeItemType(type: string): string {

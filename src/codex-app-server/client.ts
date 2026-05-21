@@ -146,7 +146,7 @@ class JsonRpcStdioCodexClient {
     this.initializedPromise = (async () => {
       await this.request("initialize", {
         clientInfo: {
-          name: "tyl_investment",
+          name: "lark-codex-base",
           version: "1.0.0",
         },
         capabilities: {

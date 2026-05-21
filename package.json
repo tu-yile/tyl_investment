@@ -1,7 +1,7 @@
 {
   "name": "tyl_investment",
   "version": "1.0.0",
-  "description": "Investment OS 主系统，内置 Feishu/Codex 网关子系统",
+  "description": "Minimal Lark CLI and Codex app server base utilities",
   "type": "module",
   "main": "dist/index.js",
   "imports": {
@@ -11,21 +11,11 @@
     }
   },
   "scripts": {
-    "build": "npm run build:server && npm run build:console",
-    "build:server": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig.investment-agents.json",
-    "build:console": "tsc -p src/dashboard/client/tsconfig.json --noEmit && vite build --config src/dashboard/client/vite.config.ts",
-    "start": "npm run build && node dist/index.js",
-    "dev": "npm run build && node dist/index.js",
-    "gateway": "npm run build && node dist/gateway/index.js",
-    "dashboard": "npm run build && node dist/dashboard/server.js",
+    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "start": "npm run build",
+    "dev": "npm run build -- --watch",
     "lint": "node -e \"console.log('No lint configured')\"",
-    "investment": "npm run build && node dist/investment/index.js",
-    "investment:agent:run": "npm run build:server && node dist/investment/index.js agent:run",
-    "investment:schedule:run": "npm run build:server && node dist/investment/index.js schedule:run",
-    "investment:validate": "npm run build && node dist/investment/index.js validate-md",
-    "investment:rebuild-state": "npm run build && node dist/investment/index.js rebuild-state",
-    "investment:db:init-local": "zsh db/investment/init-local-db.sh",
-    "test": "npm run build:server && node --test dist/**/*.test.js"
+    "test": "npm run build && node --test dist/**/*.test.js"
   },
   "repository": {
     "type": "git",
@@ -39,20 +29,10 @@
   },
   "homepage": "https://github.com/tu-yile/tyl_investment#readme",
   "dependencies": {
-    "@larksuite/cli": "^1.0.4",
-    "@openai/codex-sdk": "^0.118.0",
-    "fast-xml-parser": "^5.5.11",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-router-dom": "^7.14.0",
-    "zod": "^4.3.6"
+    "@larksuite/cli": "^1.0.4"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
-    "typescript": "^6.0.2",
-    "vite": "^8.0.8"
+    "typescript": "^6.0.2"
   }
 }

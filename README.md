@@ -1,99 +1,45 @@
-# Investment OS (V1)
+# Lark + Codex Base
 
-This repository now treats `investment` as the primary system.
-The Feishu/Codex gateway remains in-repo as a secondary subsystem that can be started by the investment engine when needed.
+这个仓库现在只保留两层基础能力：
 
-## System Layout
+- `src/lark/`: 基于 `lark-cli` 的飞书访问封装
+- `src/codex-app-server/`: 基于 `codex app-server --listen stdio://` 的执行封装
 
-- Primary system: `investment/` Markdown-driven investment research engine
-- Agent platform: standalone Markdown agents under `investment/agents/`
-- Agent execution: `src/investment/llm/` via Codex app server
-- Secondary subsystem: `src/gateway/` Feishu ingress and conversational control plane
+## 当前结构
 
-## Primary Commands
+- `src/index.ts`: 顶层导出入口
+- `src/lark/index.ts`: Lark 基础能力导出
+- `src/codex-app-server/index.ts`: Codex app server 基础能力导出
+- `src/config/`: 仅保留基础配置
+- `src/core/logging/logger.ts`: 简单日志实现
 
-- `npm run start` starts the investment system CLI entrypoint
-- `npm run investment:agent:run -- --agent=information-collector --context-file=tmp/context.md --output=tmp/information-collector.md`
-- `npm run investment:schedule:run` starts the fixed-time scheduled agent runner
-- `npm run investment:validate`
-- `npm run investment:rebuild-state`
-- `npm run gateway` starts the Feishu gateway subsystem directly
-- `npm run start -- gateway` also starts the Feishu gateway through the primary entrypoint
-
-## Requirements
-
-- Node.js 22+
-- Working `lark-cli` installation with successful auth
-- Codex credentials (for example `CODEX_API_KEY` or `OPENAI_API_KEY`)
-
-## Quick Start
+## 安装
 
 ```bash
 npm install
-npm run start
 ```
 
-Run an investment agent:
+要求：
+
+- Node.js 22+
+- 本机可用的 `lark-cli`
+- 本机可用的 `codex` CLI
+
+## 构建
 
 ```bash
-npm run investment:agent:run -- --agent=information-collector --context-file=tmp/context.md --output=tmp/information-collector.md
+npm run build
 ```
 
-Start scheduled agent tasks:
+## 使用示例
 
-```bash
-npm run investment:schedule:run
+```ts
+import { LarkClient, Logger, runCodexTask } from "tyl_investment";
 ```
 
-The scheduler reads the current runtime config `schedules.json`. Each enabled task specifies a local
-`HH:mm` time, target `agent`, task brief, optional `subject`, optional extra context files, and an
-output template such as `{outputRoot}/scheduled/{date}/{taskId}.md`.
+## 环境变量
 
-Start the Feishu subsystem:
-
-```bash
-npm run start -- gateway
-```
-
-## Optional Environment Variables
-
-- Investment engine:
-  - `INVESTMENT_DB_PATH`: override `investment/data/investment.sqlite3`
-  - `INVESTMENT_CODEX_MODEL`: override model used by investment agents
-  - `INVESTMENT_CODEX_REASONING_EFFORT`: override reasoning effort for investment agents
-  - `INVESTMENT_CODEX_APP_SERVER_TIMEOUT_MS`: app server timeout in ms
-- `ALLOWED_OPEN_IDS`: comma-separated allowlist; defaults to current logged-in user.
-- `WORKSPACE_ROOTS`: comma-separated allowed workspace roots; defaults to repo root.
-- `CODEX_MODEL`: Codex model override.
-- `CODEX_API_KEY` or `OPENAI_API_KEY`: API key.
-- `CODEX_BASE_URL` or `OPENAI_BASE_URL`: API base URL override.
-- `CODEX_PATH`: codex binary path override.
-- `GATEWAY_DATA_DIR`: data folder for DB/logs (default `.gateway`).
-- `AUTO_BIND_WORKSPACE=0`: disable auto-bind of repo root on first natural-language message.
-- `DEFAULT_MODE`: default session mode (`build` by default in current config).
-- `CODEX_NETWORK_ACCESS`: optional override (`1/true` or `0/false`).
-- `CODEX_WEB_SEARCH_MODE`: optional override (`disabled` / `cached` / `live`).
-- `CODEX_APPROVAL_POLICY`: optional override (`never` / `on-request` / `on-failure` / `untrusted`).
-- `CODEX_SANDBOX_MODE`: optional override (`read-only` / `workspace-write` / `danger-full-access`).
-- `CODEX_SKIP_GIT_REPO_CHECK`: optional override (`1/true` or `0/false`).
-- `STREAMING_MODE`: `off` (default) / `snapshot` / `patch` / `cardkit`.
-- `STREAMING_ENABLED`: legacy switch; `1/true` maps to `snapshot` when `STREAMING_MODE` is unset.
-`patch/cardkit` mode now reuses your existing `lark-cli` login and does not require separate OpenAPI env credentials.
-
-## Import Alias
-
-- Internal source imports support the `#src/*` alias.
-- Example: `import { runInvestmentCli } from "#src/investment/index.js"`
-- Runtime resolution uses `package.json#imports`, so the alias works in both TypeScript compilation and Node.js execution.
-
-## Project Layout
-
-- `src/index.ts` primary entrypoint, now routed to the investment engine
-- `src/investment/` investment CLI, standalone agent runner, storage
-- `investment/` environment-scoped runtime data and prompts
-- `db/investment/` shared SQLite schema, seed, and init scripts
-- `src/gateway/bootstrap.ts` gateway subsystem composition root
-- `src/gateway/` Feishu routing/session/command orchestration
-- `src/lark/` Feishu transport and rendering
-- `src/codex-app-server/` shared Codex app server abstraction for gateway and investment runtime
-- `src/core/` logging and gateway persistence
+- `CODEX_PATH`: `codex` 可执行文件路径，默认直接使用 `codex`
+- `CODEX_MODEL`: 默认模型
+- `RUNTIME_DATA_DIR`: 运行时目录，默认 `.runtime`
+- `GATEWAY_DATA_DIR`: 兼容旧环境变量，效果等同于 `RUNTIME_DATA_DIR`
